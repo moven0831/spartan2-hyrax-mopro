@@ -16,11 +16,12 @@ fn mopro_uniffi_hello_world() -> String {
     "Hello, World!".to_string()
 }
 
-// CIRCOM_TEMPLATE
+mod sha256;
 
-// HALO2_TEMPLATE
-
-// NOIR_TEMPLATE
+#[uniffi::export]
+fn sha256_prove_and_verify() {
+    sha256::sha256_prove_and_verify();
+}
 
 #[cfg(test)]
 mod uniffi_tests {
@@ -29,5 +30,10 @@ mod uniffi_tests {
     #[test]
     fn test_mopro_uniffi_hello_world() {
         assert_eq!(mopro_uniffi_hello_world(), "Hello, World!");
+    }
+
+    #[test]
+    fn test_sha256_prove_and_verify() {
+        sha256::sha256_prove_and_verify();
     }
 }
