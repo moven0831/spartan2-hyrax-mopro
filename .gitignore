@@ -1,2 +1,6 @@
 target/
 build/
+
+MoproiOSBindings/
+Config.toml
+CLAUDE.md
