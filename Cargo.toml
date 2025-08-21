@@ -1,4 +1,7 @@
 
+[workspace]
+members = [".", "wallet-unit-poc/ecdsa-spartan2"]
+
 [package]
 name = "spartan2-hyrax-mopro"
 version = "0.1.0"
@@ -17,6 +20,7 @@ mopro-ffi = { git = "https://github.com/zkmopro/mopro.git" }
 rust-witness = "0.1"
 uniffi = { version = "=0.29.0" }
 thiserror = "2.0.12"
+ecdsa-spartan2 = { path = "wallet-unit-poc/ecdsa-spartan2" }
 
 # SPARTAN2_DEPENDENCIES
 spartan2 = { git = "https://github.com/moven0831/Spartan2.git", branch = "aarch64-compatible" }
