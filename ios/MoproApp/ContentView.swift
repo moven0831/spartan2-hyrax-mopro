@@ -177,12 +177,8 @@ extension ContentView {
             // Copy bundled resources directly to avoid memory issues
             let setupResult = self.copyBundleResourcesDirectly(documentsPath: documentsPath)
             
-            if setupResult {
-                // Initialize mobile environment
-                let initResult = initializeMobileEnvironment(documentsPath: documentsPath)
-                
+            if setupResult {  
                 DispatchQueue.main.async {
-                    self.textViewText += "Init result: \(initResult)\n"
                     self.mobileEnvironmentInitialized = true
                     self.textViewText += "Mobile environment ready!\n\n"
                 }

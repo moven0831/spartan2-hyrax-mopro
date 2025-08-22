@@ -2,8 +2,7 @@
 
 pub use crate::ecdsa_circuit::ECDSACircuit;
 pub use crate::jwt_circuit::JWTCircuit;
-pub use crate::mobile_ecdsa_circuit::MobileECDSACircuit;
-pub use crate::mobile_jwt_circuit::MobileJWTCircuit;
+pub use crate::mobile::{MobileCircuit, CircuitType};
 pub use crate::setup::{load_keys, setup_ecdsa_keys, setup_jwt_keys};
 
 use spartan2::{
@@ -19,8 +18,7 @@ pub type Scalar = <E as Engine>::Scalar;
 
 pub mod ecdsa_circuit;
 pub mod jwt_circuit;
-pub mod mobile_ecdsa_circuit;
-pub mod mobile_jwt_circuit;
+pub mod mobile;
 pub mod setup;
 
 /// Run a complete circuit benchmark (setup, prep, prove, verify)
@@ -150,7 +148,7 @@ pub fn prove_jwt_sum_check() -> Result<(u128, u128), Box<dyn std::error::Error>>
 
 /// Mobile JWT sum-check using pre-generated witnesses (sum-check only, no verification)
 pub fn mobile_prove_jwt_sum_check() -> Result<(u128, u128), Box<dyn std::error::Error>> {
-    let circuit = MobileJWTCircuit;
+    let circuit = MobileCircuit::new_jwt();
     let pk_path = "wallet-unit-poc/ecdsa-spartan2/keys/jwt_proving.key";
     let vk_path = "wallet-unit-poc/ecdsa-spartan2/keys/jwt_verifying.key";
 
@@ -238,7 +236,7 @@ pub fn prove_ecdsa_sumcheck_hyrax() -> Result<(u128, u128), Box<dyn std::error::
 
 /// Mobile-compatible ECDSA proving using pre-generated witnesses
 pub fn mobile_prove_ecdsa_with_keys() -> Result<(u128, u128, u128), Box<dyn std::error::Error>> {
-    let circuit = MobileECDSACircuit;
+    let circuit = MobileCircuit::new_ecdsa();
     let pk_path = "wallet-unit-poc/ecdsa-spartan2/keys/ecdsa_proving.key";
     let vk_path = "wallet-unit-poc/ecdsa-spartan2/keys/ecdsa_verifying.key";
 
@@ -266,7 +264,7 @@ pub fn mobile_prove_ecdsa_with_keys() -> Result<(u128, u128, u128), Box<dyn std:
 
 /// Mobile-compatible JWT proving using pre-generated witnesses
 pub fn mobile_prove_jwt_with_keys() -> Result<(u128, u128, u128), Box<dyn std::error::Error>> {
-    let circuit = MobileJWTCircuit;
+    let circuit = MobileCircuit::new_jwt();
     let pk_path = "wallet-unit-poc/ecdsa-spartan2/keys/jwt_proving.key";
     let vk_path = "wallet-unit-poc/ecdsa-spartan2/keys/jwt_verifying.key";
 
