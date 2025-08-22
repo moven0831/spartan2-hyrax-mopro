@@ -1,0 +1,4 @@
+ios/MoproApp/jwt_proving.key filter=lfs diff=lfs merge=lfs -text
+ios/MoproApp/jwt_verifying.key filter=lfs diff=lfs merge=lfs -text
+ios/MoproApp/jwt.r1cs filter=lfs diff=lfs merge=lfs -text
+ios/MoproApp/jwt.wtns filter=lfs diff=lfs merge=lfs -text
