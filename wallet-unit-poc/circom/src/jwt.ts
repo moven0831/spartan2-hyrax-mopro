@@ -5,7 +5,6 @@ import { encodeClaims, stringToPaddedBigIntArray } from "./utils.ts";
 // The JWT Circuit Parameters
 interface JwtCircuitParams {
   es256: Es256CircuitParams;
-  maxB64HeaderLength: number;
   maxB64PayloadLength: number;
   maxMatches: number;
   maxSubstringLength: number;
@@ -18,11 +17,10 @@ export function generateJwtCircuitParams(params: number[]): JwtCircuitParams {
     es256: {
       maxMessageLength: params[0],
     },
-    maxB64HeaderLength: params[1],
-    maxB64PayloadLength: params[2],
-    maxMatches: params[3],
-    maxSubstringLength: params[4],
-    maxClaimLength: params[5],
+    maxB64PayloadLength: params[1],
+    maxMatches: params[2],
+    maxSubstringLength: params[3],
+    maxClaimLength: params[4],
   };
 }
 
@@ -39,24 +37,27 @@ export function generateJwtInputs(
   const [b64header, b64payload, b64signature] = token.split(".");
 
   // check that we are not exceeding the limits
-  assert.ok(b64header.length <= params.maxB64HeaderLength);
   assert.ok(b64payload.length <= params.maxB64PayloadLength);
-  assert.ok(matches.length <= params.maxMatches);
+  assert.ok(matches.length + 2 <= params.maxMatches);
 
   // generate inputs for the ES256 validation
   let es256Inputs = generateES256Inputs(params.es256, `${b64header}.${b64payload}`, b64signature, pk);
 
   const payload = atob(b64payload);
 
+  const patterns = ['"x":"', '"y":"', ...matches];
+
+  assert.ok(patterns.length <= params.maxMatches);
+
   let matchSubstring: bigint[][] = [];
   let matchLength: number[] = [];
   let matchIndex: number[] = [];
-  for (const match of matches) {
-    assert.ok(matches.length <= params.maxSubstringLength);
-    const index = payload.indexOf(match);
+  for (const pattern of patterns) {
+    assert.ok(pattern.length <= params.maxSubstringLength);
+    const index = payload.indexOf(pattern);
     assert.ok(index != -1);
-    matchSubstring.push(stringToPaddedBigIntArray(match, params.maxSubstringLength));
-    matchLength.push(match.length);
+    matchSubstring.push(stringToPaddedBigIntArray(pattern, params.maxSubstringLength));
+    matchLength.push(pattern.length);
     matchIndex.push(index);
   }
 
@@ -66,7 +67,14 @@ export function generateJwtInputs(
     matchIndex.push(0);
   }
 
-  let { claimArray, claimLengths } = encodeClaims(claims, params.maxMatches, params.maxClaimLength);
+  const claimsAligned = ["", "", ...claims];
+  let { claimArray, claimLengths } = encodeClaims(claimsAligned, params.maxMatches, params.maxClaimLength);
+
+  const decodeFlagsAligned: number[] = [0, 0, ...decodeFlags];
+  while (decodeFlagsAligned.length < params.maxMatches) {
+    decodeFlagsAligned.push(0);
+  }
+  const decodeFlagsOut = decodeFlagsAligned.slice(0, params.maxMatches);
 
   // const now = new Date();
   // const currentYear = BigInt(now.getUTCFullYear());
@@ -76,12 +84,12 @@ export function generateJwtInputs(
   return {
     ...es256Inputs,
     periodIndex: token.indexOf("."),
-    matchesCount: matches.length,
+    matchesCount: patterns.length,
     matchSubstring,
     matchLength,
     matchIndex,
     claims: claimArray,
     claimLengths,
-    decodeFlags,
+    decodeFlags: decodeFlagsOut,
   };
 }

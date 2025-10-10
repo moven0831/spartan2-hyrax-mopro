@@ -112,10 +112,7 @@ extension ContentView {
         // Define files to copy with their sources and destinations
         // Note: WASM files excluded to reduce memory usage and bundle size
         let filesToCopy: [(bundleName: String, bundleExt: String, destination: URL)] = [
-            // Circuit files (R1CS and witness only, no WASM)
-            ("ecdsa", "r1cs", ecdsaJsDir.appendingPathComponent("ecdsa.r1cs")),
             ("ecdsa", "wtns", ecdsaJsDir.appendingPathComponent("ecdsa.wtns")),
-            ("jwt", "r1cs", jwtJsDir.appendingPathComponent("jwt.r1cs")),
             ("jwt", "wtns", jwtJsDir.appendingPathComponent("jwt.wtns")),
             
             // Input files
@@ -172,19 +169,24 @@ extension ContentView {
         textViewText += "Initializing mobile environment...\n"
         
         DispatchQueue.global(qos: .userInitiated).async {
+            let start = CFAbsoluteTimeGetCurrent()
             let documentsPath = self.getDocumentsDirectory()
             
             // Copy bundled resources directly to avoid memory issues
             let setupResult = self.copyBundleResourcesDirectly(documentsPath: documentsPath)
             
+            let timeElapsed = CFAbsoluteTimeGetCurrent() - start
+            
             if setupResult {  
                 DispatchQueue.main.async {
                     self.mobileEnvironmentInitialized = true
-                    self.textViewText += "Mobile environment ready!\n\n"
+                    self.textViewText += "Mobile environment ready!\n"
+                    self.textViewText += "Setup time: \(String(format: "%.3f", timeElapsed)) seconds\n\n"
                 }
             } else {
                 DispatchQueue.main.async {
                     self.textViewText += "Failed to copy bundle resources\n"
+                    self.textViewText += "Failed after: \(String(format: "%.3f", timeElapsed)) seconds\n"
                 }
             }
         }

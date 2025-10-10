@@ -7,7 +7,7 @@ pub use crate::setup::{load_keys, setup_ecdsa_keys, setup_jwt_keys};
 
 use spartan2::{
     provider::T256HyraxEngine,
-    spartan::R1CSSNARK,
+    zk_spartan::R1CSSNARK,
     traits::{circuit::SpartanCircuit, snark::R1CSSNARKTrait, Engine},
 };
 use std::time::Instant;
