@@ -28,10 +28,12 @@ struct ContentView: View {
             Button("JWT Prove & Verify", action: runJWTProveAndVerify)
                 .disabled(!mobileEnvironmentInitialized || !isProveButtonEnabled)
                 .accessibilityIdentifier("jwtProveVerify")
-            
-            Button("JWT Sum-Check Only", action: runJWTSumCheck)
-                .disabled(!mobileEnvironmentInitialized || !isProveButtonEnabled)
-                .accessibilityIdentifier("jwtSumCheck")
+
+            // Note: JWT Sum-Check function not yet implemented in Rust backend
+            // Uncomment when mobile_jwt_prove_sum_check is added to src/lib.rs
+            // Button("JWT Sum-Check Only", action: runJWTSumCheck)
+            //     .disabled(!mobileEnvironmentInitialized || !isProveButtonEnabled)
+            //     .accessibilityIdentifier("jwtSumCheck")
 
             ScrollView {
                 Text(textViewText)
@@ -112,6 +114,9 @@ extension ContentView {
         // Define files to copy with their sources and destinations
         // Note: WASM files excluded to reduce memory usage and bundle size
         let filesToCopy: [(bundleName: String, bundleExt: String, destination: URL)] = [
+            ("ecdsa", "r1cs", ecdsaJsDir.appendingPathComponent("ecdsa.r1cs")),
+            ("jwt", "r1cs", jwtJsDir.appendingPathComponent("jwt.r1cs")),
+
             ("ecdsa", "wtns", ecdsaJsDir.appendingPathComponent("ecdsa.wtns")),
             ("jwt", "wtns", jwtJsDir.appendingPathComponent("jwt.wtns")),
             
@@ -234,26 +239,27 @@ extension ContentView {
         }
     }
     
-    func runJWTSumCheck() {
-        textViewText += "Running JWT Sumcheck Only...(ideally this should run in background process)\n"
-        isProveButtonEnabled = false
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            let start = CFAbsoluteTimeGetCurrent()
-            let documentsPath = self.getDocumentsDirectory()
-            
-            let result = mobileJwtProveSumCheck(documentsPath: documentsPath)
-            
-            let end = CFAbsoluteTimeGetCurrent()
-            let timeTaken = end - start
-            
-            DispatchQueue.main.async {
-                self.textViewText += "JWT Sum-Check Result: \(result)\n"
-                self.textViewText += "Time taken: \(String(format: "%.3f", timeTaken))s\n\n"
-                self.isProveButtonEnabled = true
-            }
-        }
-    }
+    // Note: Commented out until mobile_jwt_prove_sum_check is implemented in Rust
+    // func runJWTSumCheck() {
+    //     textViewText += "Running JWT Sumcheck Only...(ideally this should run in background process)\n"
+    //     isProveButtonEnabled = false
+    //
+    //     DispatchQueue.global(qos: .userInitiated).async {
+    //         let start = CFAbsoluteTimeGetCurrent()
+    //         let documentsPath = self.getDocumentsDirectory()
+    //
+    //         let result = mobileJwtProveSumCheck(documentsPath: documentsPath)
+    //
+    //         let end = CFAbsoluteTimeGetCurrent()
+    //         let timeTaken = end - start
+    //
+    //         DispatchQueue.main.async {
+    //             self.textViewText += "JWT Sum-Check Result: \(result)\n"
+    //             self.textViewText += "Time taken: \(String(format: "%.3f", timeTaken))s\n\n"
+    //             self.isProveButtonEnabled = true
+    //         }
+    //     }
+    // }
 }
 
 

@@ -50,6 +50,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "time"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+[dev-dependencies]
+tempfile = "3.8"
+
 [build-dependencies]
 mopro-ffi = { git = "https://github.com/zkmopro/mopro.git" }
 rust-witness = "0.1"

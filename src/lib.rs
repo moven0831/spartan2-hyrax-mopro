@@ -16,18 +16,8 @@ fn mopro_uniffi_hello_world() -> String {
     "Hello, World!".to_string()
 }
 
-// mod sha256;
-
-// #[uniffi::export]
-// fn sha256_prove_and_verify() {
-//     sha256::sha256_prove_and_verify();
-// }
-
 use ecdsa_spartan2::{
-    run_ecdsa_circuit, run_jwt_circuit, prove_ecdsa_with_keys, prove_jwt_with_keys,
-    prove_jwt_sum_check, prove_jwt_sumcheck_hyrax, prove_ecdsa_sumcheck_hyrax,
-    setup_ecdsa_keys as setup_ecdsa_circuit_keys, setup_jwt_keys as setup_jwt_circuit_keys,
-    mobile_prove_ecdsa_with_keys, mobile_prove_jwt_with_keys, mobile_prove_jwt_sum_check
+    mobile_prove_ecdsa_with_keys, mobile_prove_jwt_with_keys
 };
 
 /// Mobile-compatible ECDSA proving with pre-loaded keys from documents directory
@@ -78,30 +68,6 @@ fn mobile_jwt_prove_with_keys(documents_path: String) -> String {
     result
 }
 
-/// Mobile-compatible JWT sum-check with pre-loaded keys from documents directory
-#[uniffi::export]
-fn mobile_jwt_prove_sum_check(documents_path: String) -> String {
-    // Store the original directory to restore later
-    let original_dir = std::env::current_dir().unwrap_or_default();
-    
-    // Set current directory to documents path to make relative paths work
-    if let Err(e) = std::env::set_current_dir(&documents_path) {
-        return format!("Failed to set working directory: {}", e);
-    }
-    
-    let result = match mobile_prove_jwt_sum_check() {
-        Ok((prep_ms, sumcheck_ms)) => {
-            format!("JWT Sum-check - Prep: {}ms, Sum-check: {}ms", prep_ms, sumcheck_ms)
-        }
-        Err(e) => format!("JWT Sum-check failed: {}", e)
-    };
-    
-    // Restore original directory
-    let _ = std::env::set_current_dir(original_dir);
-    
-    result
-}
-
 #[cfg(test)]
 mod uniffi_tests {
     use super::*;
@@ -111,8 +77,33 @@ mod uniffi_tests {
         assert_eq!(mopro_uniffi_hello_world(), "Hello, World!");
     }
 
-    // #[test]
-    // fn test_sha256_prove_and_verify() {
-    //     sha256::sha256_prove_and_verify();
-    // }
+    /// Test mobile ECDSA proving with directory handling
+    /// Note: This test verifies directory restoration logic
+    #[test]
+    fn test_mobile_ecdsa_directory_handling() {
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Test with nonexistent path - should return error and restore directory
+        let result = mobile_ecdsa_prove_with_keys("/nonexistent/test/path".to_string());
+        assert!(result.starts_with("Failed to set working directory:"));
+
+        // Verify directory was restored
+        let after_dir = std::env::current_dir().unwrap();
+        assert_eq!(original_dir, after_dir);
+    }
+
+    /// Test mobile JWT proving with directory handling
+    /// Note: This test verifies directory restoration logic
+    #[test]
+    fn test_mobile_jwt_directory_handling() {
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Test with nonexistent path - should return error and restore directory
+        let result = mobile_jwt_prove_with_keys("/nonexistent/test/path".to_string());
+        assert!(result.starts_with("Failed to set working directory:"));
+
+        // Verify directory was restored
+        let after_dir = std::env::current_dir().unwrap();
+        assert_eq!(original_dir, after_dir);
+    }
 }
