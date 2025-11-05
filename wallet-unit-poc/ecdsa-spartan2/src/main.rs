@@ -13,27 +13,13 @@
 //!   RUST_LOG=info cargo run --release -- setup_prepare
 //!   RUST_LOG=info cargo run --release -- setup_show
 
-use crate::{
-    circuits::{prepare_circuit::PrepareCircuit, show_circuit::ShowCircuit},
-    prover::{prove_circuit, run_circuit},
-    setup::{
-        setup_circuit_keys, PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY, SHOW_PROVING_KEY,
-        SHOW_VERIFYING_KEY,
-    },
+use ecdsa_spartan2::{
+    prove_circuit, run_circuit, setup_circuit_keys, PrepareCircuit, ShowCircuit,
+    PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY, SHOW_PROVING_KEY, SHOW_VERIFYING_KEY,
 };
-
-use spartan2::{provider::T256HyraxEngine, traits::Engine};
 use std::env::args;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-
-pub type E = T256HyraxEngine;
-pub type Scalar = <E as Engine>::Scalar;
-
-mod circuits;
-mod prover;
-mod setup;
-mod utils;
 
 fn main() {
     tracing_subscriber::fmt()
