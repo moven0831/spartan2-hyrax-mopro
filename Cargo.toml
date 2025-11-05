@@ -12,14 +12,15 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 # Adapters for different proof systems
 [features]
-default = []
+default = ["uniffi"]
+uniffi = ["mopro-ffi/uniffi"]
+flutter = ["mopro-ffi/flutter"]
 
 [dependencies]
 mopro-wasm = { git = "https://github.com/zkmopro/mopro.git" }
-mopro-ffi = { git = "https://github.com/zkmopro/mopro.git" }
-rust-witness = "0.1.6"
-uniffi = { version = "=0.29.0" }
+mopro-ffi = "0.3.2"
 thiserror = "2.0.12"
+anyhow = "1.0.99"
 ecdsa-spartan2 = { path = "wallet-unit-poc/ecdsa-spartan2" }
 
 # SPARTAN2_DEPENDENCIES
@@ -52,11 +53,9 @@ chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3.8"
+mopro-ffi = { version = "0.3.2", features = ["uniffi-tests"] }
 
 [build-dependencies]
-mopro-ffi = { git = "https://github.com/zkmopro/mopro.git" }
-rust-witness = "0.1.6"
-uniffi = { version = "=0.29.0", features = ["build"] }
 spartan2 = { git = "https://github.com/therealyingtong/Spartan2.git", branch = "zk", default-features = false }
 
 [profile.release]

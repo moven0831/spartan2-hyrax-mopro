@@ -1,28 +1,20 @@
-// Here we're calling a macro exported with Uniffi. This macro will
-// write some functions and bind them to FFI type.
-// These functions include:
-// - `generate_circom_proof`
-// - `verify_circom_proof`
-// - `generate_halo2_proof`
-// - `verify_halo2_proof`
-// - `generate_noir_proof`
-// - `verify_noir_proof`
-mopro_ffi::app!();
-
-/// You can also customize the bindings by #[uniffi::export]
-/// Reference: https://mozilla.github.io/uniffi-rs/latest/proc_macro/index.html
-#[uniffi::export]
-fn mopro_uniffi_hello_world() -> String {
-    "Hello, World!".to_string()
-}
-
 use ecdsa_spartan2::{
     mobile_prove_ecdsa_with_keys, mobile_prove_jwt_with_keys
 };
 
+// Initializes the shared UniFFI scaffolding and defines the `MoproError` enum.
+mopro_ffi::app!();
+
+/// You can also customize the bindings by #[uniffi::export]
+/// Reference: https://mozilla.github.io/uniffi-rs/latest/proc_macro/index.html
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn mopro_hello_world() -> String {
+    "Hello, World!".to_string()
+}
+
 /// Mobile-compatible ECDSA proving with pre-loaded keys from documents directory
-#[uniffi::export] 
-fn mobile_ecdsa_prove_with_keys(documents_path: String) -> String {
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn mobile_ecdsa_prove_with_keys(documents_path: String) -> String {
     // Store the original directory to restore later
     let original_dir = std::env::current_dir().unwrap_or_default();
     
@@ -45,8 +37,8 @@ fn mobile_ecdsa_prove_with_keys(documents_path: String) -> String {
 }
 
 /// Mobile-compatible JWT proving with pre-loaded keys from documents directory
-#[uniffi::export]
-fn mobile_jwt_prove_with_keys(documents_path: String) -> String {
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn mobile_jwt_prove_with_keys(documents_path: String) -> String {
     // Store the original directory to restore later
     let original_dir = std::env::current_dir().unwrap_or_default();
     
@@ -74,7 +66,7 @@ mod uniffi_tests {
 
     #[test]
     fn test_mopro_uniffi_hello_world() {
-        assert_eq!(mopro_uniffi_hello_world(), "Hello, World!");
+        assert_eq!(mopro_hello_world(), "Hello, World!");
     }
 
     /// Test mobile ECDSA proving with directory handling
