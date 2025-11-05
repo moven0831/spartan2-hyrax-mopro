@@ -17,13 +17,13 @@ default = []
 [dependencies]
 mopro-wasm = { git = "https://github.com/zkmopro/mopro.git" }
 mopro-ffi = { git = "https://github.com/zkmopro/mopro.git" }
-rust-witness = "0.1"
+rust-witness = "0.1.6"
 uniffi = { version = "=0.29.0" }
 thiserror = "2.0.12"
 ecdsa-spartan2 = { path = "wallet-unit-poc/ecdsa-spartan2" }
 
 # SPARTAN2_DEPENDENCIES
-spartan2 = { git = "https://github.com/moven0831/Spartan2.git", branch = "aarch64-compatible" }
+spartan2 = { git = "https://github.com/therealyingtong/Spartan2.git", branch = "zk", default-features = false }
 bellpepper-core = "0.4.0"
 bellpepper = "0.4.0"
 ff = { version = "0.13.0", features = ["derive"] }
@@ -55,9 +55,9 @@ tempfile = "3.8"
 
 [build-dependencies]
 mopro-ffi = { git = "https://github.com/zkmopro/mopro.git" }
-rust-witness = "0.1"
+rust-witness = "0.1.6"
 uniffi = { version = "=0.29.0", features = ["build"] }
-spartan2 = { git = "https://github.com/moven0831/Spartan2.git", branch = "aarch64-compatible" }
+spartan2 = { git = "https://github.com/therealyingtong/Spartan2.git", branch = "zk", default-features = false }
 
 [profile.release]
 debug = true

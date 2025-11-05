@@ -17,23 +17,17 @@
 //! To setup the chunked JWT circuit:
 //!   RUST_LOG=info cargo run --release -- setup_chunked_jwt
 
-use crate::config_generator::{prove_ecdsa, prove_jwt};
-use crate::ecdsa_circuit::ECDSACircuit;
-use crate::jwt_circuit::JWTCircuit;
-use crate::setup::{run_circuit, setup_ecdsa_keys, setup_jwt_chunked_keys, setup_jwt_keys};
+use ecdsa_spartan2::config_generator::{prove_ecdsa, prove_jwt};
+use ecdsa_spartan2::ecdsa_circuit::ECDSACircuit;
+use ecdsa_spartan2::jwt_circuit::JWTCircuit;
+use ecdsa_spartan2::setup::{run_circuit, setup_ecdsa_keys, setup_jwt_chunked_keys, setup_jwt_keys};
 
-use spartan2::{provider::T256HyraxEngine, traits::Engine};
 use std::env::args;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-pub type E = T256HyraxEngine;
-pub type Scalar = <E as Engine>::Scalar;
-
-mod config_generator;
-mod ecdsa_circuit;
-mod jwt_circuit;
-mod setup;
+pub type E = ecdsa_spartan2::E;
+pub type Scalar = ecdsa_spartan2::Scalar;
 
 fn main() {
     tracing_subscriber::fmt()
