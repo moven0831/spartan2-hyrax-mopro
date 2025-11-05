@@ -16,10 +16,12 @@ use tracing::info;
 pub type E = T256HyraxEngine;
 pub type Scalar = <E as Engine>::Scalar;
 
+pub mod config_generator;
 pub mod ecdsa_circuit;
 pub mod jwt_circuit;
 pub mod mobile;
 pub mod setup;
+pub mod utils;
 
 /// Run a complete circuit benchmark (setup, prep, prove, verify)
 pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) -> (u128, u128, u128, u128) {
