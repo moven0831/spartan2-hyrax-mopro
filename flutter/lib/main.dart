@@ -1,5 +1,3 @@
-import 'dart:io';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -11,581 +9,554 @@ Future<void> main() async {
   runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+      ),
+      home: const CircuitProverScreen(),
+    );
+  }
 }
 
-class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
-  CircomProofResult? _circomProofResult;
-  Halo2ProofResult? _halo2ProofResult;
-  Uint8List? _noirProofResult;
-  Uint8List? _noirVerificationKey;
-  bool? _circomValid;
-  bool? _halo2Valid;
-  bool? _noirValid;
-  bool isProving = false;
-  Exception? _error;
-  late TabController _tabController;
+enum CircuitType { prepare, show }
 
-  // Controllers to handle user input
-  final TextEditingController _controllerA = TextEditingController();
-  final TextEditingController _controllerB = TextEditingController();
-  final TextEditingController _controllerOut = TextEditingController();
-  final TextEditingController _controllerNoirA = TextEditingController();
-  final TextEditingController _controllerNoirB = TextEditingController();
+enum OperationPhase { idle, setup, proving, verifying, complete }
+
+class CircuitProverScreen extends StatefulWidget {
+  const CircuitProverScreen({super.key});
+
+  @override
+  State<CircuitProverScreen> createState() => _CircuitProverScreenState();
+}
+
+class _CircuitProverScreenState extends State<CircuitProverScreen> {
+  CircuitType _selectedCircuit = CircuitType.prepare;
+  OperationPhase _currentPhase = OperationPhase.idle;
+
+  bool _isOperating = false;
+  String? _setupResult;
+  String? _proveResult;
+  String? _fullWorkflowResult;
+  Exception? _error;
+
+  // Timing metrics (parsed from result strings)
+  int? _setupTimeMs;
+  int? _proveTimeMs;
 
   @override
   void initState() {
     super.initState();
-    _controllerA.text = "5";
-    _controllerB.text = "3";
-    _controllerOut.text = "55";
-    _controllerNoirA.text = "5";
-    _controllerNoirB.text = "3";
-    _tabController = TabController(length: 3, vsync: this);
+    _initializeApp();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  Future<void> _initializeApp() async {
+    try {
+      await initApp();
+    } catch (e) {
+      setState(() {
+        _error = Exception('Initialization failed: $e');
+      });
+    }
   }
 
-  Widget _buildCircomTab() {
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (isProving) const CircularProgressIndicator(),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Text(_error.toString()),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextFormField(
-              controller: _controllerA,
-              decoration: const InputDecoration(
-                labelText: "Public input `a`",
-                hintText: "For example, 5",
-              ),
-              keyboardType: TextInputType.number,
-            ),
+  Future<String> _getDocumentsPath() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return directory.path;
+  }
+
+  int? _parseTimeFromResult(String result) {
+    // Parse "completed in XXXms" from result string
+    final regex = RegExp(r'(\d+)ms');
+    final match = regex.firstMatch(result);
+    if (match != null) {
+      return int.tryParse(match.group(1)!);
+    }
+    return null;
+  }
+
+  Future<void> _runSetup() async {
+    setState(() {
+      _isOperating = true;
+      _currentPhase = OperationPhase.setup;
+      _error = null;
+      _setupResult = null;
+      _setupTimeMs = null;
+    });
+
+    try {
+      final documentsPath = await _getDocumentsPath();
+      final result = _selectedCircuit == CircuitType.prepare
+          ? await setupPrepareKeys(documentsPath: documentsPath)
+          : await setupShowKeys(documentsPath: documentsPath);
+
+      setState(() {
+        _setupResult = result;
+        _setupTimeMs = _parseTimeFromResult(result);
+        _currentPhase = OperationPhase.complete;
+      });
+    } catch (e) {
+      setState(() {
+        _error = Exception('Setup failed: $e');
+        _currentPhase = OperationPhase.idle;
+      });
+    } finally {
+      setState(() {
+        _isOperating = false;
+      });
+    }
+  }
+
+  Future<void> _runProve() async {
+    setState(() {
+      _isOperating = true;
+      _currentPhase = OperationPhase.proving;
+      _error = null;
+      _proveResult = null;
+      _proveTimeMs = null;
+    });
+
+    try {
+      final documentsPath = await _getDocumentsPath();
+      final result = _selectedCircuit == CircuitType.prepare
+          ? await provePrepareCircuit(documentsPath: documentsPath)
+          : await proveShowCircuit(documentsPath: documentsPath);
+
+      setState(() {
+        _proveResult = result;
+        _proveTimeMs = _parseTimeFromResult(result);
+        _currentPhase = OperationPhase.verifying;
+      });
+
+      // Simulate verification phase (already done in Rust)
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      setState(() {
+        _currentPhase = OperationPhase.complete;
+      });
+    } catch (e) {
+      setState(() {
+        _error = Exception('Proving failed: $e');
+        _currentPhase = OperationPhase.idle;
+      });
+    } finally {
+      setState(() {
+        _isOperating = false;
+      });
+    }
+  }
+
+  Future<void> _runFullWorkflow() async {
+    setState(() {
+      _isOperating = true;
+      _currentPhase = OperationPhase.setup;
+      _error = null;
+      _fullWorkflowResult = null;
+      _setupTimeMs = null;
+      _proveTimeMs = null;
+    });
+
+    try {
+      final documentsPath = await _getDocumentsPath();
+
+      // Update phase to proving
+      setState(() {
+        _currentPhase = OperationPhase.proving;
+      });
+
+      final result = _selectedCircuit == CircuitType.prepare
+          ? await runPrepareCircuit(documentsPath: documentsPath)
+          : await runShowCircuit(documentsPath: documentsPath);
+
+      // Update phase to verifying
+      setState(() {
+        _currentPhase = OperationPhase.verifying;
+      });
+
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      setState(() {
+        _fullWorkflowResult = result;
+        _currentPhase = OperationPhase.complete;
+      });
+    } catch (e) {
+      setState(() {
+        _error = Exception('Full workflow failed: $e');
+        _currentPhase = OperationPhase.idle;
+      });
+    } finally {
+      setState(() {
+        _isOperating = false;
+      });
+    }
+  }
+
+  void _reset() {
+    setState(() {
+      _currentPhase = OperationPhase.idle;
+      _setupResult = null;
+      _proveResult = null;
+      _fullWorkflowResult = null;
+      _error = null;
+      _setupTimeMs = null;
+      _proveTimeMs = null;
+    });
+  }
+
+  Widget _buildPhaseIndicator(OperationPhase phase, String label, IconData icon) {
+    final isActive = _currentPhase == phase;
+    final isComplete = _currentPhase.index > phase.index && _currentPhase != OperationPhase.idle;
+
+    Color color;
+    if (isActive) {
+      color = Colors.blue;
+    } else if (isComplete) {
+      color = Colors.green;
+    } else {
+      color = Colors.grey;
+    }
+
+    return Column(
+      children: [
+        Icon(
+          isComplete ? Icons.check_circle : icon,
+          color: color,
+          size: 32,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
           ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextFormField(
-              controller: _controllerB,
-              decoration: const InputDecoration(
-                labelText: "Private input `b`",
-                hintText: "For example, 3",
-              ),
-              keyboardType: TextInputType.number,
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: OutlinedButton(
-                    onPressed: () async {
-                      if (_controllerA.text.isEmpty ||
-                          _controllerB.text.isEmpty ||
-                          isProving) {
-                        return;
-                      }
-                      setState(() {
-                        _error = null;
-                        isProving = true;
-                      });
+        ),
+      ],
+    );
+  }
 
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      CircomProofResult? proofResult;
-                      try {
-                        var inputs =
-                            '{"a":["${_controllerA.text}"],"b":["${_controllerB.text}"]}';
-                        final zkeyPath = await copyAssetToFileSystem(
-                            'assets/multiplier2_final.zkey');
-                        proofResult = await generateCircomProof(
-                            zkeyPath: zkeyPath,
-                            circuitInputs: inputs,
-                            proofLib: ProofLib
-                                .arkworks); // DO NOT change the proofLib if you don't build for rapidsnark
-                      } on Exception catch (e) {
-                        print("Error: $e");
-                        proofResult = null;
-                        setState(() {
-                          _error = e;
-                        });
-                      }
-
-                      if (!mounted) return;
-
-                      setState(() {
-                        isProving = false;
-                        _circomProofResult = proofResult;
-                      });
-                    },
-                    child: const Text("Generate Proof")),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: OutlinedButton(
-                    onPressed: () async {
-                      if (_controllerA.text.isEmpty ||
-                          _controllerB.text.isEmpty ||
-                          isProving) {
-                        return;
-                      }
-                      setState(() {
-                        _error = null;
-                        isProving = true;
-                      });
-
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      bool? valid;
-                      try {
-                        var proofResult = _circomProofResult;
-                        final zkeyPath = await copyAssetToFileSystem(
-                            'assets/multiplier2_final.zkey');
-                        valid = await verifyCircomProof(
-                            zkeyPath: zkeyPath,
-                            proofResult: proofResult!,
-                            proofLib: ProofLib
-                                .arkworks); // DO NOT change the proofLib if you don't build for rapidsnark
-                      } on Exception catch (e) {
-                        print("Error: $e");
-                        valid = false;
-                        setState(() {
-                          _error = e;
-                        });
-                      } on TypeError catch (e) {
-                        print("Error: $e");
-                        valid = false;
-                        setState(() {
-                          _error = Exception(e.toString());
-                        });
-                      }
-
-                      if (!mounted) return;
-
-                      setState(() {
-                        isProving = false;
-                        _circomValid = valid;
-                      });
-                    },
-                    child: const Text("Verify Proof")),
-              ),
-            ],
-          ),
-          if (_circomProofResult != null)
-            Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text('Proof is valid: ${_circomValid ?? false}'),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child:
-                      Text('Proof inputs: ${_circomProofResult?.inputs ?? ""}'),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text('Proof: ${_circomProofResult?.proof ?? ""}'),
-                ),
-              ],
-            ),
-        ],
+  Widget _buildPhaseTracker() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _buildPhaseIndicator(OperationPhase.setup, 'Setup', Icons.settings),
+            const Icon(Icons.arrow_forward, color: Colors.grey),
+            _buildPhaseIndicator(OperationPhase.proving, 'Prove', Icons.calculate),
+            const Icon(Icons.arrow_forward, color: Colors.grey),
+            _buildPhaseIndicator(OperationPhase.verifying, 'Verify', Icons.verified),
+            const Icon(Icons.arrow_forward, color: Colors.grey),
+            _buildPhaseIndicator(OperationPhase.complete, 'Done', Icons.done_all),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildHalo2Tab() {
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (isProving) const CircularProgressIndicator(),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Text(_error.toString()),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextFormField(
-              controller: _controllerOut,
-              decoration: const InputDecoration(
-                labelText: "Public input `out`",
-                hintText: "For example, 55",
-              ),
-              keyboardType: TextInputType.number,
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: OutlinedButton(
-                    onPressed: () async {
-                      if (_controllerOut.text.isEmpty || isProving) {
-                        return;
-                      }
-                      setState(() {
-                        _error = null;
-                        isProving = true;
-                      });
-
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      Halo2ProofResult? halo2ProofResult;
-                      try {
-                        var inputs = {
-                          "out": [(_controllerOut.text)]
-                        };
-                        final srsPath = await copyAssetToFileSystem(
-                            'assets/plonk_fibonacci_srs.bin');
-                        final pkPath = await copyAssetToFileSystem(
-                            'assets/plonk_fibonacci_pk.bin');
-                        halo2ProofResult = await generateHalo2Proof(
-                          srsPath: srsPath,
-                          pkPath: pkPath,
-                          circuitInputs: inputs,
-                        );
-                      } on Exception catch (e) {
-                        print("Error: $e");
-                        halo2ProofResult = null;
-                        setState(() {
-                          _error = e;
-                        });
-                      }
-
-                      if (!mounted) return;
-
-                      setState(() {
-                        isProving = false;
-                        _halo2ProofResult = halo2ProofResult;
-                      });
-                    },
-                    child: const Text("Generate Proof")),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: OutlinedButton(
-                    onPressed: () async {
-                      if (_controllerOut.text.isEmpty || isProving) {
-                        return;
-                      }
-                      setState(() {
-                        _error = null;
-                        isProving = true;
-                      });
-
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      bool? valid;
-                      try {
-                        var proofResult = _halo2ProofResult;
-                        final srsPath = await copyAssetToFileSystem(
-                            'assets/plonk_fibonacci_srs.bin');
-                        final vkPath = await copyAssetToFileSystem(
-                            'assets/plonk_fibonacci_vk.bin');
-                        valid = await verifyHalo2Proof(
-                            srsPath: srsPath,
-                            vkPath: vkPath,
-                            proof: proofResult!.proof,
-                            publicInput: proofResult.inputs,
-                          );
-                      } on Exception catch (e) {
-                        print("Error: $e");
-                        valid = false;
-                        setState(() {
-                          _error = e;
-                        });
-                      } on TypeError catch (e) {
-                        print("Error: $e");
-                        valid = false;
-                        setState(() {
-                          _error = Exception(e.toString());
-                        });
-                      }
-
-                      if (!mounted) return;
-
-                      setState(() {
-                        _halo2Valid = valid;
-                        isProving = false;
-                      });
-                    },
-                    child: const Text("Verify Proof")),
-              ),
-            ],
-          ),
-          if (_halo2ProofResult != null)
-            Column(
+  Widget _buildOperationCard({
+    required String title,
+    required String description,
+    required IconData icon,
+    required VoidCallback? onPressed,
+    String? result,
+    int? timeMs,
+    bool isPrimary = false,
+  }) {
+    return Card(
+      elevation: isPrimary ? 4 : 2,
+      color: isPrimary ? Colors.blue.shade50 : null,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text('Proof is valid: ${_halo2Valid ?? false}'),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child:
-                      Text('Proof inputs: ${_halo2ProofResult?.inputs ?? ""}'),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text('Proof: ${_halo2ProofResult?.proof ?? ""}'),
+                Icon(icon, color: isPrimary ? Colors.blue : Colors.grey),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isPrimary ? Colors.blue.shade900 : null,
+                        ),
+                      ),
+                      Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNoirTab() {
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (isProving) const CircularProgressIndicator(),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Text(_error.toString()),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextFormField(
-              controller: _controllerNoirA,
-              decoration: const InputDecoration(
-                labelText: "Public input `a`",
-                hintText: "For example, 3",
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isOperating ? null : onPressed,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isPrimary ? Colors.blue : null,
+                  foregroundColor: isPrimary ? Colors.white : null,
+                ),
+                child: Text(title),
               ),
-              keyboardType: TextInputType.number,
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextFormField(
-              controller: _controllerNoirB,
-              decoration: const InputDecoration(
-                labelText: "Public input `b`",
-                hintText: "For example, 5",
-              ),
-              keyboardType: TextInputType.number,
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Padding(
+            if (result != null) ...[
+              const SizedBox(height: 8),
+              Container(
                 padding: const EdgeInsets.all(8.0),
-                child: OutlinedButton(
-                    onPressed: () async {
-                      if (_controllerNoirA.text.isEmpty ||
-                          _controllerNoirB.text.isEmpty ||
-                          isProving) {
-                        return;
-                      }
-                      setState(() {
-                        _error = null;
-                        isProving = true;
-                      });
-
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      Uint8List? noirProofResult;
-                      try {
-                        var inputs = [
-                          _controllerNoirA.text,
-                          _controllerNoirB.text
-                        ];
-
-                        // Constants for Noir proof generation
-                        const bool onChain =
-                            true; // Use Keccak for Solidity compatibility
-                        const bool lowMemoryMode = false;
-
-                        // Get or generate verification key if not already available
-                        if (_noirVerificationKey == null) {
-                          setState(() {
-                            _error = null;
-                          });
-                          // Try to load existing VK from assets, or generate new one
-                          try {
-                            // First try to load existing VK from assets
-                            final vkAsset = await rootBundle
-                                .load('assets/noir_multiplier2.vk');
-                            _noirVerificationKey = vkAsset.buffer.asUint8List();
-                          } catch (e) {
-                            final circuitPath = await copyAssetToFileSystem(
-                                'assets/noir_multiplier2.json');
-                            final srsPath = await copyAssetToFileSystem(
-                                'assets/noir_multiplier2.srs');
-                            // If VK doesn't exist in assets, generate it
-                            _noirVerificationKey = await getNoirVerificationKey(
-                              circuitPath: circuitPath,
-                              srsPath: srsPath,
-                              onChain: onChain,
-                              lowMemoryMode: lowMemoryMode,
-                            );
-                          }
-                        }
-
-                        final circuitPath = await copyAssetToFileSystem(
-                            'assets/noir_multiplier2.json');
-                        final srsPath = await copyAssetToFileSystem(
-                            'assets/noir_multiplier2.srs');
-                        noirProofResult = await generateNoirProof(
-                            circuitPath: circuitPath,
-                            srsPath: srsPath,
-                            inputs: inputs,
-                            onChain: onChain,
-                            vk: _noirVerificationKey!,
-                            lowMemoryMode: lowMemoryMode);
-                      } on Exception catch (e) {
-                        print("Error: $e");
-                        noirProofResult = null;
-                        setState(() {
-                          _error = e;
-                        });
-                      }
-
-                      if (!mounted) return;
-
-                      setState(() {
-                        isProving = false;
-                        _noirProofResult = noirProofResult;
-                      });
-                    },
-                    child: const Text("Generate Proof")),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: OutlinedButton(
-                    onPressed: () async {
-                      if (_controllerNoirA.text.isEmpty ||
-                          _controllerNoirB.text.isEmpty ||
-                          isProving) {
-                        return;
-                      }
-                      setState(() {
-                        _error = null;
-                        isProving = true;
-                      });
-
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      bool? valid;
-                      try {
-                        var proofResult = _noirProofResult;
-                        var vk = _noirVerificationKey;
-
-                        if (vk == null) {
-                          throw Exception(
-                              "Verification key not available. Generate proof first.");
-                        }
-
-                        final circuitPath = await copyAssetToFileSystem(
-                            'assets/noir_multiplier2.json');
-                        // Constants for Noir proof verification
-                        const bool onChain =
-                            true; // Use Keccak for Solidity compatibility
-                        const bool lowMemoryMode = false;
-
-                        valid = await verifyNoirProof(
-                          circuitPath: circuitPath,
-                          proof: proofResult!,
-                          onChain: onChain,
-                          vk: vk,
-                          lowMemoryMode: lowMemoryMode,
-                        );
-                      } on Exception catch (e) {
-                        print("Error: $e");
-                        valid = false;
-                        setState(() {
-                          _error = e;
-                        });
-                      } on TypeError catch (e) {
-                        print("Error: $e");
-                        valid = false;
-                        setState(() {
-                          _error = Exception(e.toString());
-                        });
-                      }
-
-                      if (!mounted) return;
-
-                      setState(() {
-                        _noirValid = valid;
-                        isProving = false;
-                      });
-                    },
-                    child: const Text("Verify Proof")),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green.shade700, size: 16),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            result,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (timeMs != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Execution time: ${timeMs}ms (${(timeMs / 1000).toStringAsFixed(2)}s)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ],
-          ),
-          if (_noirProofResult != null)
-            Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text('Proof is valid: ${_noirValid ?? false}'),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text('Proof: ${_noirProofResult ?? ""}'),
-                ),
-              ],
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Flutter App With MoPro'),
-          bottom: TabBar(
-            controller: _tabController,
-            tabs: const [
-              Tab(text: 'Circom'),
-              Tab(text: 'Halo2'),
-              Tab(text: 'Noir'),
-            ],
-          ),
-        ),
-        body: TabBarView(
-          controller: _tabController,
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Spartan2-Hyrax Circuits'),
+        elevation: 2,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildCircomTab(),
-            _buildHalo2Tab(),
-            _buildNoirTab(),
+            // Circuit Selector
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Select Circuit',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SegmentedButton<CircuitType>(
+                      segments: const [
+                        ButtonSegment(
+                          value: CircuitType.prepare,
+                          label: Text('Prepare Circuit'),
+                          icon: Icon(Icons.key),
+                        ),
+                        ButtonSegment(
+                          value: CircuitType.show,
+                          label: Text('Show Circuit'),
+                          icon: Icon(Icons.visibility),
+                        ),
+                      ],
+                      selected: {_selectedCircuit},
+                      onSelectionChanged: _isOperating
+                          ? null
+                          : (Set<CircuitType> newSelection) {
+                              setState(() {
+                                _selectedCircuit = newSelection.first;
+                                _reset();
+                              });
+                            },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Phase Tracker
+            if (_currentPhase != OperationPhase.idle)
+              _buildPhaseTracker(),
+
+            const SizedBox(height: 16),
+
+            // Progress Indicator
+            if (_isOperating)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 12),
+                      Text(
+                        _getCurrentPhaseText(),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // Error Display
+            if (_error != null)
+              Card(
+                color: Colors.red.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.error, color: Colors.red.shade700),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Error',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _error.toString(),
+                        style: TextStyle(color: Colors.red.shade900),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: _reset,
+                            child: const Text('Dismiss'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            const SizedBox(height: 16),
+
+            // Operation Cards
+            _buildOperationCard(
+              title: 'Generate Keys',
+              description: 'Generate proving and verifying keys (one-time setup)',
+              icon: Icons.vpn_key,
+              onPressed: _runSetup,
+              result: _setupResult,
+              timeMs: _setupTimeMs,
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildOperationCard(
+              title: 'Generate Proof',
+              description: 'Generate proof using existing keys',
+              icon: Icons.calculate,
+              onPressed: _runProve,
+              result: _proveResult,
+              timeMs: _proveTimeMs,
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildOperationCard(
+              title: 'Run Full Workflow',
+              description: 'Execute complete setup + prove + verify pipeline',
+              icon: Icons.play_circle,
+              onPressed: _runFullWorkflow,
+              result: _fullWorkflowResult,
+              isPrimary: true,
+            ),
+
+            const SizedBox(height: 16),
+
+            // Reset Button
+            if (_currentPhase != OperationPhase.idle && !_isOperating)
+              OutlinedButton.icon(
+                onPressed: _reset,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reset'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.all(16),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
-}
 
-/// Copies an asset to a file and returns the file path
-Future<String> copyAssetToFileSystem(String assetPath) async {
-  final byteData = await rootBundle.load(assetPath);
-  final directory = await getApplicationDocumentsDirectory();
-  final filename = assetPath.split('/').last;
-  final file = File('${directory.path}/$filename');
-  await file.writeAsBytes(byteData.buffer.asUint8List());
-  return file.path;
+  String _getCurrentPhaseText() {
+    switch (_currentPhase) {
+      case OperationPhase.setup:
+        return 'Setting up circuit keys...';
+      case OperationPhase.proving:
+        return 'Generating proof...';
+      case OperationPhase.verifying:
+        return 'Verifying proof...';
+      case OperationPhase.complete:
+        return 'Operation complete';
+      default:
+        return 'Processing...';
+    }
+  }
 }
