@@ -3,6 +3,14 @@ name = "ecdsa-spartan2"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "ecdsa_spartan2"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ecdsa-spartan2"
+path = "src/main.rs"
+
 [dependencies]
 circom-scotia = "0.2.0"
 spartan2 = { git = "https://github.com/therealyingtong/Spartan2.git", branch = "zk", default-features = false }
