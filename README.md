@@ -1,18 +1,18 @@
-# Spartan2-Hyrax Mopro
+# zkID Mobile Wallet-Unit-PoC 
 
-PoC for [Spartan2](https://github.com/microsoft/Spartan2) SNARK + Hyrax on iOS App with optimized mobile benchmarking for ECDSA and JWT circuits
+Mobile App for [zkID Wallet-Unit-PoC](https://github.com/privacy-ethereum/zkID/tree/main/wallet-unit-poc), support both Android and iOS.
 
 ## Getting Started
 
 ### 1. Install the Mopro CLI Tool
 
 ```sh
-git clone https://github.com/zkmopro/mopro
-cd mopro/cli
-cargo install --path .
+cargo install mopro-cli
 ```
 
-### 2. Generate iOS Bindings
+### 2. iOS Projects
+
+### 2(a). Generate iOS Bindings
 
 Build bindings for your project by executing:
 
@@ -21,36 +21,50 @@ Build bindings for your project by executing:
 mopro build
 ```
 
-### 3. Update Bindings to iOS project
+### 2(b). Update Bindings to iOS project
 
 ```sh
 mopro update
 ```
 
-### 4. Open iOS project
+### 2(c). Open iOS project
 
 ```sh
 open ios/MoproApp.xcodeproj
 ```
 
-## Mobile Architecture
+## 3. Flutter App
 
-The project includes a specialized mobile-optimized circuit implementation designed for efficient zero-knowledge proving on iOS devices:
+### 3(a). Generate Flutter Bindings
 
-### Unified Mobile Circuit (`wallet-unit-poc/ecdsa-spartan2/src/mobile.rs`)
-- **Consolidated Implementation**: Single `MobileCircuit` struct handles both ECDSA and JWT circuits through a `CircuitType` enum
-- **Memory-Efficient Witness Loading**: Custom binary witness file parser that directly loads pre-generated `.wtns` files
-- **Pre-Generated Resources**: Uses pre-computed R1CS and witness files to avoid memory-intensive circuit compilation on mobile devices
+Build bindings for your project by executing:
 
-### FFI Integration (`src/lib.rs`)
-The following functions are exposed through UniFFI for iOS integration:
-- `mobile_ecdsa_prove_with_keys()` - ECDSA proving with prep, prove, and verify timing
-- `mobile_jwt_prove_with_keys()` - JWT proving with prep, prove, and verify timing  
-- `mobile_jwt_prove_sum_check()` - JWT sum-check proving (faster, proof-of-work style)
+```sh
+# choose Flutter bindings with release mode
+mopro build
+```
 
-### iOS Integration (`ios/MoproApp/ContentView.swift`)
-The iOS app provides a complete benchmarking interface with:
-- **Resource Management**: Automatic copying of circuit files, witnesses, and cryptographic keys from app bundle to documents directory
-- **Background Processing**: All proving operations run on background threads to maintain UI responsiveness
-- **Performance Monitoring**: Built-in timing measurement for all proving operations
-- **Memory Optimization**: Direct file copying to minimize memory usage during resource setup
+### 3(b). Exclude x86_64 iOS simulator in `mopro_flutter_bindings/ios/mopro_flutter_bindings.podspec`
+
+```podspec
+# Flutter.framework does not contain a i386 slice.
+# exclude x86_64 since w2c2 is not supported on x86_64-ios simulator build
+'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386 x86_64',
+```
+
+### 3(c). Connect Devices or Run Emulators
+
+```sh
+# Check Available Devices
+flutter devices
+
+# Start iOS Simulator or Android Emulator
+flutter emulator --launch <EMULATOR_TYPE>
+```
+
+### 3(d). Run Flutter with Release Mode
+
+```sh
+cd flutter
+flutter run --release
+```
