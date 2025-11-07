@@ -1,12 +1,87 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:mopro_flutter_bindings/src/rust/third_party/spartan2_hyrax_mopro.dart';
 import 'package:mopro_flutter_bindings/src/rust/frb_generated.dart';
 
 Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
+  await _copyAssetsToDocuments();
   runApp(const MyApp());
+}
+
+/// Copy circuit R1CS files and input data from Flutter assets to documents directory
+/// This allows Rust code to access them at runtime
+/// Compressed .gz files are automatically decompressed during copying
+Future<void> _copyAssetsToDocuments() async {
+  try {
+    final documentsDir = await getApplicationDocumentsDirectory();
+    final circomDir = Directory('${documentsDir.path}/circom');
+
+    // Create circom directory if it doesn't exist
+    if (!await circomDir.exists()) {
+      await circomDir.create(recursive: true);
+    }
+
+    // Compressed assets (will be decompressed during copy)
+    final compressedAssets = {
+      'assets/circom/jwt.r1cs.gz': 'jwt.r1cs',
+      'assets/circom/show.r1cs.gz': 'show.r1cs',
+    };
+
+    // Regular assets (copied as-is)
+    final regularAssets = [
+      'assets/circom/jwt_input.json',
+      'assets/circom/show_input.json',
+    ];
+
+    // Decompress and copy compressed assets
+    for (final entry in compressedAssets.entries) {
+      final assetPath = entry.key;
+      final fileName = entry.value;
+      final targetFile = File('${circomDir.path}/$fileName');
+
+      // Only copy if file doesn't exist (avoid overwriting on every startup)
+      if (!await targetFile.exists()) {
+        debugPrint('Decompressing asset: $assetPath -> ${targetFile.path}');
+        try {
+          final data = await rootBundle.load(assetPath);
+          final compressed = data.buffer.asUint8List();
+
+          // Decompress using gzip
+          final decompressed = gzip.decode(compressed);
+          await targetFile.writeAsBytes(decompressed);
+
+          final compressedMB = (compressed.length / 1024 / 1024).toStringAsFixed(2);
+          final decompressedMB = (decompressed.length / 1024 / 1024).toStringAsFixed(2);
+          debugPrint('Decompressed $fileName: ${compressedMB}MB -> ${decompressedMB}MB');
+        } catch (e) {
+          debugPrint('Failed to decompress $assetPath: $e');
+          rethrow;
+        }
+      }
+    }
+
+    // Copy regular assets (no decompression needed)
+    for (final assetPath in regularAssets) {
+      final fileName = assetPath.split('/').last;
+      final targetFile = File('${circomDir.path}/$fileName');
+
+      if (!await targetFile.exists()) {
+        debugPrint('Copying asset: $assetPath -> ${targetFile.path}');
+        final data = await rootBundle.load(assetPath);
+        final bytes = data.buffer.asUint8List();
+        await targetFile.writeAsBytes(bytes);
+        debugPrint('Copied $fileName (${bytes.length} bytes)');
+      }
+    }
+  } catch (e) {
+    debugPrint('Error copying assets: $e');
+    // Don't throw - allow app to start even if asset copying fails
+  }
 }
 
 class MyApp extends StatelessWidget {
