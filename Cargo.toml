@@ -59,6 +59,8 @@ mopro-ffi = { version = "0.3.2", features = ["uniffi-tests"] }
 spartan2 = { git = "https://github.com/therealyingtong/Spartan2.git", branch = "zk", default-features = false }
 
 [profile.release]
-debug = true
-strip = false
-lto = false
+opt-level = "z"     # Optimize for size
+lto = "thin"        # Enable thin Link-Time Optimization for better cross-crate optimization
+strip = true        # Strip debug symbols from release binaries
+debug = false       # Disable debug info in release builds
+codegen-units = 1   # Better optimization at the cost of longer compile time
