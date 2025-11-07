@@ -1,4 +1,4 @@
-use std::{any::type_name, env::current_dir, sync::OnceLock};
+use std::{any::type_name, path::PathBuf, sync::OnceLock};
 
 use bellpepper_core::{num::AllocatedNum, ConstraintSystem, SynthesisError};
 use circom_scotia::{reader::load_r1cs, synthesize};
@@ -25,9 +25,16 @@ impl SpartanCircuit<E> for PrepareCircuit {
         _: &[AllocatedNum<Scalar>],
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
-        let root = current_dir().unwrap().join("../circom");
-        let witness_dir = root.join("build/jwt/jwt_js");
-        let r1cs = witness_dir.join("jwt.r1cs");
+        // Look for R1CS file in current working directory
+        // Fallback to project-relative path for non-mobile environments
+        let r1cs_path = PathBuf::from("circom/jwt.r1cs");
+        let r1cs = if r1cs_path.exists() {
+            r1cs_path
+        } else {
+            // Fallback to compile-time relative path
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../circom/build/jwt/jwt_js/jwt.r1cs")
+        };
 
         // Detect if we're in setup phase (ShapeCS) or prove phase (SatisfyingAssignment)
         // During setup, we only need constraint structure instead of actual witness values
