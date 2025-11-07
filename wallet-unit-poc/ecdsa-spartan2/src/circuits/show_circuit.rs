@@ -1,4 +1,4 @@
-use std::{env::current_dir, fs::File, sync::OnceLock};
+use std::{fs::File, path::PathBuf, sync::OnceLock};
 
 use bellpepper_core::{num::AllocatedNum, ConstraintSystem, SynthesisError};
 use circom_scotia::{reader::load_r1cs, synthesize};
@@ -26,12 +26,21 @@ impl SpartanCircuit<E> for ShowCircuit {
         _: &[AllocatedNum<Scalar>],
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
-        let root = current_dir().unwrap().join("../circom");
-        let witness_dir = root.join("build/show/show_js");
-        let r1cs = witness_dir.join("show.r1cs");
-        let json_file = {
-            let path = current_dir()
-                .unwrap()
+        // Look for files in current working directory (set to documents dir by Flutter)
+        // Fallback to project-relative paths for non-mobile environments
+        let r1cs_path = PathBuf::from("circom/show.r1cs");
+        let r1cs = if r1cs_path.exists() {
+            r1cs_path
+        } else {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../circom/build/show/show_js/show.r1cs")
+        };
+
+        let input_json_path = PathBuf::from("circom/show_input.json");
+        let json_file = if input_json_path.exists() {
+            File::open(input_json_path).expect("Failed to open show_input.json")
+        } else {
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../circom/inputs/show/default.json");
             File::open(path).expect("Failed to open show_input.json")
         };
@@ -58,9 +67,11 @@ impl SpartanCircuit<E> for ShowCircuit {
         &self,
         cs: &mut CS,
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
-        let json_file = {
-            let path = current_dir()
-                .unwrap()
+        let input_json_path = PathBuf::from("circom/show_input.json");
+        let json_file = if input_json_path.exists() {
+            File::open(input_json_path).expect("Failed to open show_input.json")
+        } else {
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../circom/inputs/show/default.json");
             File::open(path).expect("Failed to open show_input.json")
         };

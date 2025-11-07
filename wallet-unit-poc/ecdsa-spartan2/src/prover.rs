@@ -1,4 +1,4 @@
-use std::{env::current_dir, fs::File, time::Instant};
+use std::{fs::File, path::PathBuf, time::Instant};
 
 use crate::{
     circuits::prepare_circuit::jwt_witness,
@@ -81,11 +81,18 @@ pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C,
 pub fn generate_prepare_witness(
     input_json_path: Option<&std::path::Path>,
 ) -> Result<(Vec<Scalar>, Scalar, Scalar), SynthesisError> {
-    let root = current_dir().unwrap().join("../circom");
-
-    let json_path = input_json_path
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| root.join("inputs/jwt/default.json"));
+    // If input path provided, use it; otherwise try current dir then fallback to compile-time path
+    let json_path = if let Some(p) = input_json_path {
+        p.to_path_buf()
+    } else {
+        let runtime_path = PathBuf::from("circom/jwt_input.json");
+        if runtime_path.exists() {
+            runtime_path
+        } else {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../circom/inputs/jwt/default.json")
+        }
+    };
 
     let json_file = File::open(&json_path).map_err(|_| SynthesisError::AssignmentMissing)?;
 
