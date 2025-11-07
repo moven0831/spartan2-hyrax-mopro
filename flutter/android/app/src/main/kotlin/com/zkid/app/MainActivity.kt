@@ -1,4 +1,4 @@
-package com.example.mopro_flutter_example
+package com.zkid.app
 
 import io.flutter.embedding.android.FlutterActivity
 
