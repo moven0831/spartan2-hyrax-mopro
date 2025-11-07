@@ -29,15 +29,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		2A4190682DF1CCE6004F1A4F /* noir_multiplier2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = noir_multiplier2.json; sourceTree = "<group>"; };
-		2A41906A2DF1CCED004F1A4F /* noir_multiplier2.srs */ = {isa = PBXFileReference; lastKnownFileType = file; path = noir_multiplier2.srs; sourceTree = "<group>"; };
 		2A5991EC2CC7722900135402 /* MoproApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MoproApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2A5991FC2CC7722A00135402 /* MoproAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MoproAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2A5992062CC7722A00135402 /* MoproAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MoproAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		2A59922E2CC7750200135402 /* multiplier2_final.zkey */ = {isa = PBXFileReference; lastKnownFileType = file; path = multiplier2_final.zkey; sourceTree = "<group>"; };
-		2A5992302CC7750C00135402 /* plonk_fibonacci_pk.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = plonk_fibonacci_pk.bin; sourceTree = "<group>"; };
-		2A5992312CC7750C00135402 /* plonk_fibonacci_srs.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = plonk_fibonacci_srs.bin; sourceTree = "<group>"; };
-		2A5992322CC7750C00135402 /* plonk_fibonacci_vk.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = plonk_fibonacci_vk.bin; sourceTree = "<group>"; };
 		2A5992362CC77A7E00135402 /* mopro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mopro.swift; sourceTree = "<group>"; };
 		2A5992372CC77A7E00135402 /* MoproBindings.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MoproBindings.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -94,12 +88,6 @@
 				2A5992092CC7722A00135402 /* MoproAppUITests */,
 				2A5991ED2CC7722900135402 /* Products */,
 				2A5992382CC77A7E00135402 /* MoproiOSBindings */,
-				2A59922E2CC7750200135402 /* multiplier2_final.zkey */,
-				2A5992302CC7750C00135402 /* plonk_fibonacci_pk.bin */,
-				2A5992312CC7750C00135402 /* plonk_fibonacci_srs.bin */,
-				2A5992322CC7750C00135402 /* plonk_fibonacci_vk.bin */,
-				2A4190682DF1CCE6004F1A4F /* noir_multiplier2.json */,
-				2A41906A2DF1CCED004F1A4F /* noir_multiplier2.srs */,
 			);
 			sourceTree = "<group>";
 		};
@@ -442,8 +430,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = mopro.MoproApp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = zkidPoC.zkID;
+				PRODUCT_NAME = zkID;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -471,8 +459,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = mopro.MoproApp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = zkidPoC.zkID;
+				PRODUCT_NAME = zkID;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -489,7 +477,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = mopro.MoproAppTests;
+				PRODUCT_BUNDLE_IDENTIFIER = zkidPoC.MoproAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -508,7 +496,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = mopro.MoproAppTests;
+				PRODUCT_BUNDLE_IDENTIFIER = zkidPoC.MoproAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -525,7 +513,7 @@
 				DEVELOPMENT_TEAM = 73H2G4S25V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = mopro.MoproAppUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = zkidPoC.MoproAppUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -542,7 +530,7 @@
 				DEVELOPMENT_TEAM = 73H2G4S25V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = mopro.MoproAppUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = zkidPoC.MoproAppUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
