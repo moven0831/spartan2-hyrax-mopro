@@ -189,6 +189,11 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
       timings['total'] = int.parse(totalMatch.group(1)!);
     }
 
+    final proofMatch = RegExp(r'Proof: (\d+) bytes').firstMatch(result);
+    if (proofMatch != null) {
+      timings['proofSize'] = int.parse(proofMatch.group(1)!);
+    }
+
     return timings.isNotEmpty ? timings : null;
   }
 
@@ -485,6 +490,11 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
                         _buildTimingRow('Proving', detailedTimings['prove']!),
                       if (detailedTimings.containsKey('verify'))
                         _buildTimingRow('Verification', detailedTimings['verify']!),
+                      if (detailedTimings.containsKey('proofSize')) ...[
+                        const SizedBox(height: 4),
+                        const Divider(),
+                        _buildProofSizeRow(detailedTimings['proofSize']!),
+                      ],
                       if (detailedTimings.containsKey('total')) ...[
                         const SizedBox(height: 4),
                         const Divider(),
@@ -535,6 +545,33 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
               fontSize: 11,
               color: Colors.grey.shade900,
               fontWeight: bold ? FontWeight.bold : FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProofSizeRow(int bytes) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'Proof Size',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade700,
+              fontWeight: FontWeight.normal,
+            ),
+          ),
+          Text(
+            '${(bytes / 1024).toStringAsFixed(2)} KB ($bytes bytes)',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade900,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
