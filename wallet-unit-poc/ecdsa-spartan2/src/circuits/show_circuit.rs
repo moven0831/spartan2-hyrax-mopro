@@ -26,7 +26,7 @@ impl SpartanCircuit<E> for ShowCircuit {
         _: &[AllocatedNum<Scalar>],
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
-        // Look for files in current working directory (set to documents dir by Flutter)
+        // Look for files in current working directory
         // Fallback to project-relative paths for non-mobile environments
         let r1cs_path = PathBuf::from("circom/show.r1cs");
         let r1cs = if r1cs_path.exists() {

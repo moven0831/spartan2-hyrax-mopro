@@ -15,8 +15,24 @@ use spartan2::{
 };
 use tracing::info;
 
+/// Timing metrics for circuit execution
+#[derive(Debug, Clone)]
+pub struct CircuitTimings {
+    pub setup_ms: u128,
+    pub prep_prove_ms: u128,
+    pub prove_ms: u128,
+    pub verify_ms: u128,
+}
+
+impl CircuitTimings {
+    pub fn total_ms(&self) -> u128 {
+        self.setup_ms + self.prep_prove_ms + self.prove_ms + self.verify_ms
+    }
+}
+
 /// Run circuit using ZK-Spartan (setup, prepare, prove, verify)
-pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) {
+/// Returns timing metrics for all phases
+pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) -> CircuitTimings {
     // SETUP using ZK-Spartan
     let t0 = Instant::now();
     let (pk, vk) = R1CSSNARK::<E>::setup(circuit.clone()).expect("setup failed");
@@ -50,10 +66,31 @@ pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) {
     );
 
     info!("comm_W_shared: {:?}", proof.comm_W_shared());
+
+    CircuitTimings {
+        setup_ms,
+        prep_prove_ms: prep_ms,
+        prove_ms,
+        verify_ms,
+    }
+}
+
+/// Timing metrics for prove-only execution (no setup)
+#[derive(Debug, Clone)]
+pub struct ProveTimings {
+    pub prep_prove_ms: u128,
+    pub prove_ms: u128,
+}
+
+impl ProveTimings {
+    pub fn total_ms(&self) -> u128 {
+        self.prep_prove_ms + self.prove_ms
+    }
 }
 
 /// Only run the proving part of the circuit using ZK-Spartan (prep_prove, prove)
-pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C, pk_path: &str) {
+/// Returns timing metrics for proving phases
+pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C, pk_path: &str) -> ProveTimings {
     let pk = load_proving_key(pk_path).expect("load proving key failed");
 
     let t0 = Instant::now();
@@ -74,6 +111,11 @@ pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C,
         "ZK-Spartan prep_prove: ({} ms) + prove: ({} ms) = TOTAL: {} ms",
         prep_ms, prove_ms, total_ms
     );
+
+    ProveTimings {
+        prep_prove_ms: prep_ms,
+        prove_ms,
+    }
 }
 
 /// Generate witness for the Prepare circuit

@@ -64,13 +64,22 @@ pub fn run_prepare_circuit(documents_path: String) -> String {
     }
 
     let result = std::panic::catch_unwind(|| {
-        run_circuit(PrepareCircuit);
+        run_circuit(PrepareCircuit)
     });
 
     let _ = std::env::set_current_dir(original_dir);
 
     match result {
-        Ok(_) => "Prepare circuit completed successfully (check logs for timing details)".to_string(),
+        Ok(timings) => {
+            format!(
+                "Prepare circuit completed | Setup: {}ms | Prep: {}ms | Prove: {}ms | Verify: {}ms | Total: {}ms",
+                timings.setup_ms,
+                timings.prep_prove_ms,
+                timings.prove_ms,
+                timings.verify_ms,
+                timings.total_ms()
+            )
+        }
         Err(_) => "Prepare circuit failed".to_string(),
     }
 }
@@ -86,13 +95,22 @@ pub fn run_show_circuit(documents_path: String) -> String {
     }
 
     let result = std::panic::catch_unwind(|| {
-        run_circuit(ShowCircuit);
+        run_circuit(ShowCircuit)
     });
 
     let _ = std::env::set_current_dir(original_dir);
 
     match result {
-        Ok(_) => "Show circuit completed successfully (check logs for timing details)".to_string(),
+        Ok(timings) => {
+            format!(
+                "Show circuit completed | Setup: {}ms | Prep: {}ms | Prove: {}ms | Verify: {}ms | Total: {}ms",
+                timings.setup_ms,
+                timings.prep_prove_ms,
+                timings.prove_ms,
+                timings.verify_ms,
+                timings.total_ms()
+            )
+        }
         Err(_) => "Show circuit failed".to_string(),
     }
 }
@@ -108,13 +126,20 @@ pub fn prove_prepare_circuit(documents_path: String) -> String {
     }
 
     let result = std::panic::catch_unwind(|| {
-        prove_circuit(PrepareCircuit, PREPARE_PROVING_KEY);
+        prove_circuit(PrepareCircuit, PREPARE_PROVING_KEY)
     });
 
     let _ = std::env::set_current_dir(original_dir);
 
     match result {
-        Ok(_) => "Prepare circuit proof completed successfully (check logs for timing details)".to_string(),
+        Ok(timings) => {
+            format!(
+                "Prepare proof completed | Prep: {}ms | Prove: {}ms | Total: {}ms",
+                timings.prep_prove_ms,
+                timings.prove_ms,
+                timings.total_ms()
+            )
+        }
         Err(_) => "Prepare circuit proof failed".to_string(),
     }
 }
@@ -130,13 +155,20 @@ pub fn prove_show_circuit(documents_path: String) -> String {
     }
 
     let result = std::panic::catch_unwind(|| {
-        prove_circuit(ShowCircuit, SHOW_PROVING_KEY);
+        prove_circuit(ShowCircuit, SHOW_PROVING_KEY)
     });
 
     let _ = std::env::set_current_dir(original_dir);
 
     match result {
-        Ok(_) => "Show circuit proof completed successfully (check logs for timing details)".to_string(),
+        Ok(timings) => {
+            format!(
+                "Show proof completed | Prep: {}ms | Prove: {}ms | Total: {}ms",
+                timings.prep_prove_ms,
+                timings.prove_ms,
+                timings.total_ms()
+            )
+        }
         Err(_) => "Show circuit proof failed".to_string(),
     }
 }

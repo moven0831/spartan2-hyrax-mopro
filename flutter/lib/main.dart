@@ -124,6 +124,8 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   // Timing metrics (parsed from result strings)
   int? _setupTimeMs;
   int? _proveTimeMs;
+  Map<String, int>? _proveTimings;
+  Map<String, int>? _fullWorkflowTimings;
 
   @override
   void initState() {
@@ -154,6 +156,40 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
       return int.tryParse(match.group(1)!);
     }
     return null;
+  }
+
+  Map<String, int>? _parseDetailedTimings(String result) {
+    // Parse detailed timing format:
+    // "circuit completed | Setup: 92ms | Prep: 2ms | Prove: 89ms | Verify: 11ms | Total: 194ms"
+    // or "proof completed | Prep: 2ms | Prove: 89ms | Total: 91ms"
+    final Map<String, int> timings = {};
+
+    final setupMatch = RegExp(r'Setup: (\d+)ms').firstMatch(result);
+    if (setupMatch != null) {
+      timings['setup'] = int.parse(setupMatch.group(1)!);
+    }
+
+    final prepMatch = RegExp(r'Prep: (\d+)ms').firstMatch(result);
+    if (prepMatch != null) {
+      timings['prep'] = int.parse(prepMatch.group(1)!);
+    }
+
+    final proveMatch = RegExp(r'Prove: (\d+)ms').firstMatch(result);
+    if (proveMatch != null) {
+      timings['prove'] = int.parse(proveMatch.group(1)!);
+    }
+
+    final verifyMatch = RegExp(r'Verify: (\d+)ms').firstMatch(result);
+    if (verifyMatch != null) {
+      timings['verify'] = int.parse(verifyMatch.group(1)!);
+    }
+
+    final totalMatch = RegExp(r'Total: (\d+)ms').firstMatch(result);
+    if (totalMatch != null) {
+      timings['total'] = int.parse(totalMatch.group(1)!);
+    }
+
+    return timings.isNotEmpty ? timings : null;
   }
 
   Future<void> _runSetup() async {
@@ -195,6 +231,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
       _error = null;
       _proveResult = null;
       _proveTimeMs = null;
+      _proveTimings = null;
     });
 
     try {
@@ -205,7 +242,8 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
 
       setState(() {
         _proveResult = result;
-        _proveTimeMs = _parseTimeFromResult(result);
+        _proveTimings = _parseDetailedTimings(result);
+        _proveTimeMs = _proveTimings?['total'];
         _currentPhase = OperationPhase.verifying;
       });
 
@@ -258,6 +296,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
 
       setState(() {
         _fullWorkflowResult = result;
+        _fullWorkflowTimings = _parseDetailedTimings(result);
         _currentPhase = OperationPhase.complete;
       });
     } catch (e) {
@@ -281,6 +320,8 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
       _error = null;
       _setupTimeMs = null;
       _proveTimeMs = null;
+      _proveTimings = null;
+      _fullWorkflowTimings = null;
     });
   }
 
@@ -344,6 +385,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     required VoidCallback? onPressed,
     String? result,
     int? timeMs,
+    Map<String, int>? detailedTimings,
     bool isPrimary = false,
   }) {
     return Card(
@@ -412,16 +454,47 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            result,
+                            result.split('|').first.trim(),
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.green.shade900,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    if (timeMs != null) ...[
+                    if (detailedTimings != null) ...[
+                      const SizedBox(height: 8),
+                      const Divider(),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Timing Breakdown:',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade800,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      if (detailedTimings.containsKey('setup'))
+                        _buildTimingRow('Setup', detailedTimings['setup']!),
+                      if (detailedTimings.containsKey('prep'))
+                        _buildTimingRow('Preparation', detailedTimings['prep']!),
+                      if (detailedTimings.containsKey('prove'))
+                        _buildTimingRow('Proving', detailedTimings['prove']!),
+                      if (detailedTimings.containsKey('verify'))
+                        _buildTimingRow('Verification', detailedTimings['verify']!),
+                      if (detailedTimings.containsKey('total')) ...[
+                        const SizedBox(height: 4),
+                        const Divider(),
+                        _buildTimingRow(
+                          'Total',
+                          detailedTimings['total']!,
+                          bold: true,
+                        ),
+                      ],
+                    ] else if (timeMs != null) ...[
                       const SizedBox(height: 4),
                       Text(
                         'Execution time: ${timeMs}ms (${(timeMs / 1000).toStringAsFixed(2)}s)',
@@ -438,6 +511,33 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildTimingRow(String label, int ms, {bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade700,
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+          Text(
+            '${ms}ms (${(ms / 1000).toStringAsFixed(2)}s)',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade900,
+              fontWeight: bold ? FontWeight.bold : FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -588,7 +688,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
               icon: Icons.calculate,
               onPressed: _runProve,
               result: _proveResult,
-              timeMs: _proveTimeMs,
+              detailedTimings: _proveTimings,
             ),
 
             const SizedBox(height: 12),
@@ -599,6 +699,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
               icon: Icons.play_circle,
               onPressed: _runFullWorkflow,
               result: _fullWorkflowResult,
+              detailedTimings: _fullWorkflowTimings,
               isPrimary: true,
             ),
 
