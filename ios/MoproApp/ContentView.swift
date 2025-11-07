@@ -47,6 +47,7 @@ struct CircuitTimings {
     var prove: Int?
     var verify: Int?
     var total: Int?
+    var proofSize: Int?
 }
 
 struct ContentView: View {
@@ -353,6 +354,10 @@ struct ContentView: View {
                 if let verify = timings.verify {
                     timingRow(label: "Verification", ms: verify)
                 }
+                if let proofSize = timings.proofSize {
+                    Divider()
+                    proofSizeRow(bytes: proofSize)
+                }
                 if let total = timings.total {
                     Divider()
                     timingRow(label: "Total", ms: total, bold: true)
@@ -381,6 +386,19 @@ struct ContentView: View {
             Text("\(ms)ms (\(String(format: "%.2f", Double(ms) / 1000))s)")
                 .font(.caption2)
                 .fontWeight(bold ? .bold : .semibold)
+                .foregroundColor(.primary)
+        }
+    }
+
+    private func proofSizeRow(bytes: Int) -> some View {
+        HStack {
+            Text("Proof Size")
+                .font(.caption2)
+                .foregroundColor(.gray)
+            Spacer()
+            Text("\(String(format: "%.2f", Double(bytes) / 1024)) KB (\(bytes) bytes)")
+                .font(.caption2)
+                .fontWeight(.semibold)
                 .foregroundColor(.primary)
         }
     }
@@ -425,7 +443,8 @@ struct ContentView: View {
             ("Prep", "Prep: (\\d+)ms"),
             ("Prove", "Prove: (\\d+)ms"),
             ("Verify", "Verify: (\\d+)ms"),
-            ("Total", "Total: (\\d+)ms")
+            ("Total", "Total: (\\d+)ms"),
+            ("Proof", "Proof: (\\d+) bytes")
         ]
 
         for (key, pattern) in patterns {
@@ -439,6 +458,7 @@ struct ContentView: View {
                 case "Prove": timings.prove = value
                 case "Verify": timings.verify = value
                 case "Total": timings.total = value
+                case "Proof": timings.proofSize = value
                 default: break
                 }
             }

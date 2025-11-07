@@ -71,12 +71,16 @@ pub fn run_prepare_circuit(documents_path: String) -> String {
 
     match result {
         Ok(timings) => {
+            let proof_size_str = timings.proof_size_bytes
+                .map(|size| format!(" | Proof: {} bytes", size))
+                .unwrap_or_default();
             format!(
-                "Prepare circuit completed | Setup: {}ms | Prep: {}ms | Prove: {}ms | Verify: {}ms | Total: {}ms",
+                "Prepare circuit completed | Setup: {}ms | Prep: {}ms | Prove: {}ms | Verify: {}ms{} | Total: {}ms",
                 timings.setup_ms,
                 timings.prep_prove_ms,
                 timings.prove_ms,
                 timings.verify_ms,
+                proof_size_str,
                 timings.total_ms()
             )
         }
@@ -102,12 +106,16 @@ pub fn run_show_circuit(documents_path: String) -> String {
 
     match result {
         Ok(timings) => {
+            let proof_size_str = timings.proof_size_bytes
+                .map(|size| format!(" | Proof: {} bytes", size))
+                .unwrap_or_default();
             format!(
-                "Show circuit completed | Setup: {}ms | Prep: {}ms | Prove: {}ms | Verify: {}ms | Total: {}ms",
+                "Show circuit completed | Setup: {}ms | Prep: {}ms | Prove: {}ms | Verify: {}ms{} | Total: {}ms",
                 timings.setup_ms,
                 timings.prep_prove_ms,
                 timings.prove_ms,
                 timings.verify_ms,
+                proof_size_str,
                 timings.total_ms()
             )
         }
@@ -133,10 +141,14 @@ pub fn prove_prepare_circuit(documents_path: String) -> String {
 
     match result {
         Ok(timings) => {
+            let proof_size_str = timings.proof_size_bytes
+                .map(|size| format!(" | Proof: {} bytes", size))
+                .unwrap_or_default();
             format!(
-                "Prepare proof completed | Prep: {}ms | Prove: {}ms | Total: {}ms",
+                "Prepare proof completed | Prep: {}ms | Prove: {}ms{} | Total: {}ms",
                 timings.prep_prove_ms,
                 timings.prove_ms,
+                proof_size_str,
                 timings.total_ms()
             )
         }
@@ -162,10 +174,14 @@ pub fn prove_show_circuit(documents_path: String) -> String {
 
     match result {
         Ok(timings) => {
+            let proof_size_str = timings.proof_size_bytes
+                .map(|size| format!(" | Proof: {} bytes", size))
+                .unwrap_or_default();
             format!(
-                "Show proof completed | Prep: {}ms | Prove: {}ms | Total: {}ms",
+                "Show proof completed | Prep: {}ms | Prove: {}ms{} | Total: {}ms",
                 timings.prep_prove_ms,
                 timings.prove_ms,
+                proof_size_str,
                 timings.total_ms()
             )
         }

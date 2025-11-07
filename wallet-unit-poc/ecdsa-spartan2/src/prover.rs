@@ -22,6 +22,7 @@ pub struct CircuitTimings {
     pub prep_prove_ms: u128,
     pub prove_ms: u128,
     pub verify_ms: u128,
+    pub proof_size_bytes: Option<usize>,
 }
 
 impl CircuitTimings {
@@ -53,6 +54,14 @@ pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) -
     let prove_ms = t0.elapsed().as_millis();
     info!(elapsed_ms = prove_ms, "ZK-Spartan prove");
 
+    // Calculate proof size
+    let proof_size = bincode::serialize(&proof)
+        .map(|bytes| bytes.len())
+        .ok();
+    if let Some(size) = proof_size {
+        info!(proof_size_bytes = size, "Proof size");
+    }
+
     // VERIFY
     let t0 = Instant::now();
     proof.verify(&vk).expect("verify errored");
@@ -72,6 +81,7 @@ pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) -
         prep_prove_ms: prep_ms,
         prove_ms,
         verify_ms,
+        proof_size_bytes: proof_size,
     }
 }
 
@@ -80,6 +90,7 @@ pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) -
 pub struct ProveTimings {
     pub prep_prove_ms: u128,
     pub prove_ms: u128,
+    pub proof_size_bytes: Option<usize>,
 }
 
 impl ProveTimings {
@@ -100,10 +111,18 @@ pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C,
     info!("ZK-Spartan prep_prove: {} ms", prep_ms);
 
     let t0 = Instant::now();
-    R1CSSNARK::<E>::prove(&pk, circuit.clone(), &mut prep_snark, false).expect("prove failed");
+    let proof = R1CSSNARK::<E>::prove(&pk, circuit.clone(), &mut prep_snark, false).expect("prove failed");
     let prove_ms = t0.elapsed().as_millis();
 
     info!("ZK-Spartan prove: {} ms", prove_ms);
+
+    // Calculate proof size
+    let proof_size = bincode::serialize(&proof)
+        .map(|bytes| bytes.len())
+        .ok();
+    if let Some(size) = proof_size {
+        info!(proof_size_bytes = size, "Proof size");
+    }
 
     let total_ms = prep_ms + prove_ms;
 
@@ -115,6 +134,7 @@ pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C,
     ProveTimings {
         prep_prove_ms: prep_ms,
         prove_ms,
+        proof_size_bytes: proof_size,
     }
 }
 
