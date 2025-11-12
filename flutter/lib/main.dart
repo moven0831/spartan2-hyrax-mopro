@@ -136,20 +136,19 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
 
   bool _isOperating = false;
   bool _isBackgroundOperation = false;
-  String? _setupResult;
-  String? _proveResult;
   String? _fullWorkflowResult;
   Exception? _error;
 
   // Timing metrics (parsed from result strings)
-  int? _setupTimeMs;
-  int? _proveTimeMs;
-  Map<String, int>? _proveTimings;
   Map<String, int>? _fullWorkflowTimings;
 
-  // Background operation tracking
-  DateTime? _operationStartTime;
-  int? _lastOperationTimeMs;
+  // Batch operation state
+  bool _isRunningBatch = false;
+  String? _currentBatchTask;
+  Map<String, int> _batchTimings = {};
+  List<String> _completedBatchTasks = [];
+  int _currentBatchTaskIndex = 0;
+  final int _totalBatchTasks = 3;
 
   @override
   void initState() {
@@ -170,16 +169,6 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   Future<String> _getDocumentsPath() async {
     final directory = await getApplicationDocumentsDirectory();
     return directory.path;
-  }
-
-  int? _parseTimeFromResult(String result) {
-    // Parse "completed in XXXms" from result string
-    final regex = RegExp(r'(\d+)ms');
-    final match = regex.firstMatch(result);
-    if (match != null) {
-      return int.tryParse(match.group(1)!);
-    }
-    return null;
   }
 
   Map<String, int>? _parseDetailedTimings(String result) {
@@ -221,82 +210,20 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     return timings.isNotEmpty ? timings : null;
   }
 
-  Future<void> _runSetup() async {
+  Future<void> _runProveShow() async {
     setState(() {
       _isOperating = true;
-      _isBackgroundOperation = true; // Setup always runs in background
-      _currentPhase = OperationPhase.setup;
-      _error = null;
-      _setupResult = null;
-      _setupTimeMs = null;
-      _operationStartTime = DateTime.now();
-    });
-
-    try {
-      final documentsPath = await _getDocumentsPath();
-
-      // Run in background isolate using compute()
-      final result = await compute(
-        _selectedCircuit == CircuitType.prepare
-            ? _isolateSetupPrepare
-            : _isolateSetupShow,
-        documentsPath,
-      );
-
-      final duration = DateTime.now().difference(_operationStartTime!);
-      final timeMs = duration.inMilliseconds;
-
-      setState(() {
-        _setupResult = result;
-        _setupTimeMs = _parseTimeFromResult(result);
-        _lastOperationTimeMs = timeMs;
-        _currentPhase = OperationPhase.complete;
-      });
-    } catch (e) {
-      setState(() {
-        _error = Exception('Setup failed: $e');
-        _currentPhase = OperationPhase.idle;
-      });
-    } finally {
-      setState(() {
-        _isOperating = false;
-        _isBackgroundOperation = false;
-      });
-    }
-  }
-
-  Future<void> _runProve() async {
-    // Only Prepare circuit runs in background
-    final runsInBackground = _selectedCircuit == CircuitType.prepare;
-
-    setState(() {
-      _isOperating = true;
-      _isBackgroundOperation = runsInBackground;
       _currentPhase = OperationPhase.proving;
       _error = null;
-      _proveResult = null;
-      _proveTimeMs = null;
-      _proveTimings = null;
-      _operationStartTime = DateTime.now();
     });
 
     try {
       final documentsPath = await _getDocumentsPath();
 
-      // Prepare circuit: run in background isolate
-      // Show circuit: run on-the-fly (synchronous)
-      final result = runsInBackground
-          ? await compute(_isolateProvePrepare, documentsPath)
-          : await proveShowCircuit(documentsPath: documentsPath);
-
-      final duration = DateTime.now().difference(_operationStartTime!);
-      final timeMs = duration.inMilliseconds;
+      // Show circuit runs synchronously (fast, small circuit)
+      final result = await proveShowCircuit(documentsPath: documentsPath);
 
       setState(() {
-        _proveResult = result;
-        _proveTimings = _parseDetailedTimings(result);
-        _proveTimeMs = _proveTimings?['total'];
-        _lastOperationTimeMs = timeMs;
         _currentPhase = OperationPhase.verifying;
       });
 
@@ -304,6 +231,8 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
       await Future.delayed(const Duration(milliseconds: 500));
 
       setState(() {
+        _fullWorkflowResult = result;
+        _fullWorkflowTimings = _parseDetailedTimings(result);
         _currentPhase = OperationPhase.complete;
       });
     } catch (e) {
@@ -314,7 +243,6 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     } finally {
       setState(() {
         _isOperating = false;
-        _isBackgroundOperation = false;
       });
     }
   }
@@ -325,8 +253,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
       _currentPhase = OperationPhase.setup;
       _error = null;
       _fullWorkflowResult = null;
-      _setupTimeMs = null;
-      _proveTimeMs = null;
+      _fullWorkflowTimings = null;
     });
 
     try {
@@ -365,20 +292,83 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     }
   }
 
+  Future<void> _runAllBackgroundOperations() async {
+    setState(() {
+      _isRunningBatch = true;
+      _isOperating = true;
+      _isBackgroundOperation = true;
+      _error = null;
+      _batchTimings = {};
+      _completedBatchTasks = [];
+      _currentBatchTaskIndex = 0;
+    });
+
+    final documentsPath = await _getDocumentsPath();
+    final tasks = [
+      {'name': 'Setup Prepare Keys', 'function': _isolateSetupPrepare},
+      {'name': 'Setup Show Keys', 'function': _isolateSetupShow},
+      {'name': 'Prove Prepare Circuit', 'function': _isolateProvePrepare},
+    ];
+
+    for (int i = 0; i < tasks.length; i++) {
+      final task = tasks[i];
+      final taskName = task['name'] as String;
+
+      setState(() {
+        _currentBatchTask = taskName;
+        _currentBatchTaskIndex = i;
+      });
+
+      try {
+        final taskStartTime = DateTime.now();
+
+        // Run the task in background isolate
+        await compute(
+          task['function'] as Future<String> Function(String),
+          documentsPath,
+        );
+
+        final taskDuration = DateTime.now().difference(taskStartTime);
+        final taskTimeMs = taskDuration.inMilliseconds;
+
+        setState(() {
+          _batchTimings[taskName] = taskTimeMs;
+          _completedBatchTasks.add(taskName);
+        });
+      } catch (e) {
+        setState(() {
+          _error = Exception('$taskName failed: $e');
+          _isRunningBatch = false;
+          _isOperating = false;
+          _isBackgroundOperation = false;
+        });
+        return; // Stop batch execution on error
+      }
+    }
+
+    // All tasks completed successfully
+    setState(() {
+      _isRunningBatch = false;
+      _isOperating = false;
+      _isBackgroundOperation = false;
+      _currentBatchTask = null;
+      _currentPhase = OperationPhase.complete;
+    });
+  }
+
   void _reset() {
     setState(() {
       _currentPhase = OperationPhase.idle;
-      _setupResult = null;
-      _proveResult = null;
       _fullWorkflowResult = null;
       _error = null;
-      _setupTimeMs = null;
-      _proveTimeMs = null;
-      _proveTimings = null;
       _fullWorkflowTimings = null;
       _isBackgroundOperation = false;
-      _operationStartTime = null;
-      _lastOperationTimeMs = null;
+      // Reset batch operation state
+      _isRunningBatch = false;
+      _currentBatchTask = null;
+      _batchTimings = {};
+      _completedBatchTasks = [];
+      _currentBatchTaskIndex = 0;
     });
   }
 
@@ -435,58 +425,6 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     );
   }
 
-  Widget _buildExecutionBadge(bool isBackground) {
-    if (isBackground) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.purple.shade100,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.purple.shade300),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.cloud_done, size: 12, color: Colors.purple.shade700),
-            const SizedBox(width: 4),
-            Text(
-              'BACKGROUND',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: Colors.purple.shade700,
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.orange.shade100,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange.shade300),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.bolt, size: 12, color: Colors.orange.shade700),
-            const SizedBox(width: 4),
-            Text(
-              'SYNC',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: Colors.orange.shade700,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-  }
-
   Widget _buildOperationCard({
     required String title,
     required String description,
@@ -496,8 +434,6 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     int? timeMs,
     Map<String, int>? detailedTimings,
     bool isPrimary = false,
-    bool? runsInBackground,
-    bool showBadge = false,
   }) {
     return Card(
       elevation: isPrimary ? 4 : 2,
@@ -515,23 +451,13 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              title,
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: isPrimary ? Colors.blue.shade900 : null,
-                              ),
-                            ),
-                          ),
-                          if (showBadge && runsInBackground != null) ...[
-                            const SizedBox(width: 8),
-                            _buildExecutionBadge(runsInBackground),
-                          ],
-                        ],
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isPrimary ? Colors.blue.shade900 : null,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -696,6 +622,140 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     );
   }
 
+  Widget _buildBatchResultsCard() {
+    if (_batchTimings.isEmpty && !_isRunningBatch) {
+      return const SizedBox.shrink();
+    }
+
+    final totalTime = _batchTimings.values.fold<int>(0, (sum, time) => sum + time);
+
+    return Card(
+      color: _isRunningBatch ? Colors.blue.shade50 : Colors.green.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  _isRunningBatch ? Icons.hourglass_empty : Icons.check_circle,
+                  color: _isRunningBatch ? Colors.blue.shade700 : Colors.green.shade700,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _isRunningBatch ? 'Batch Operation Running' : 'Batch Operation Complete',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _isRunningBatch ? Colors.blue.shade900 : Colors.green.shade900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            // Task list
+            ..._buildBatchTaskList(),
+
+            const SizedBox(height: 8),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            // Total time
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _isRunningBatch ? 'Elapsed Time' : 'Total Time',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+                Text(
+                  '${totalTime}ms (${(totalTime / 1000).toStringAsFixed(2)}s)',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: _isRunningBatch ? Colors.blue.shade900 : Colors.green.shade900,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildBatchTaskList() {
+    final tasks = ['Setup Prepare Keys', 'Setup Show Keys', 'Prove Prepare Circuit'];
+    final List<Widget> taskWidgets = [];
+
+    for (int i = 0; i < tasks.length; i++) {
+      final taskName = tasks[i];
+      final isCompleted = _completedBatchTasks.contains(taskName);
+      final isRunning = _isRunningBatch && _currentBatchTask == taskName;
+      final timeMs = _batchTimings[taskName];
+
+      IconData icon;
+      Color iconColor;
+      String statusText;
+
+      if (isCompleted) {
+        icon = Icons.check_circle;
+        iconColor = Colors.green.shade700;
+        statusText = '${timeMs}ms (${(timeMs! / 1000).toStringAsFixed(2)}s)';
+      } else if (isRunning) {
+        icon = Icons.hourglass_empty;
+        iconColor = Colors.blue.shade700;
+        statusText = 'Running...';
+      } else {
+        icon = Icons.pending;
+        iconColor = Colors.grey.shade400;
+        statusText = 'Pending';
+      }
+
+      taskWidgets.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4.0),
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: iconColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  taskName,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade800,
+                    fontWeight: isRunning ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+              ),
+              Text(
+                statusText,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isCompleted ? Colors.green.shade900 : Colors.grey.shade600,
+                  fontWeight: isCompleted ? FontWeight.w600 : FontWeight.normal,
+                  fontStyle: isRunning ? FontStyle.italic : FontStyle.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return taskWidgets;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -775,6 +835,25 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      if (_isRunningBatch && _currentBatchTask != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Executing: $_currentBatchTask',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.blue.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Task ${_currentBatchTaskIndex + 1} of $_totalBatchTasks',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
                       if (_isBackgroundOperation) ...[
                         const SizedBox(height: 8),
                         Row(
@@ -787,7 +866,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              'Running in background',
+                              _isRunningBatch ? 'Running batch in background' : 'Running in background',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.purple.shade700,
@@ -797,49 +876,6 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
                           ],
                         ),
                       ],
-                    ],
-                  ),
-                ),
-              ),
-
-            // Completion Notification
-            if (!_isOperating && _currentPhase == OperationPhase.complete && _lastOperationTimeMs != null)
-              Card(
-                color: Colors.green.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle,
-                        color: Colors.green.shade700,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Operation completed successfully!',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                                color: Colors.green.shade900,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Total time: ${_lastOperationTimeMs}ms (${(_lastOperationTimeMs! / 1000).toStringAsFixed(2)}s)',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.green.shade700,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -889,34 +925,83 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
 
             const SizedBox(height: 16),
 
+            // Batch Operation Card
+            Card(
+              elevation: 3,
+              color: Colors.purple.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.playlist_play, color: Colors.purple.shade700, size: 28),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Run All Background Operations',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.purple.shade900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Execute all three operations sequentially: Setup Prepare, Setup Show, Prove Prepare',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _isOperating ? null : _runAllBackgroundOperations,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.purple.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        icon: const Icon(Icons.cloud_queue),
+                        label: const Text('Run All Background Tasks'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Batch Results Display
+            _buildBatchResultsCard(),
+
+            if (_batchTimings.isNotEmpty || _isRunningBatch)
+              const SizedBox(height: 16),
+
             // Operation Cards
-            _buildOperationCard(
-              title: 'Generate Keys',
-              description: 'Generate proving and verifying keys (one-time setup, runs in background)',
-              icon: Icons.vpn_key,
-              onPressed: _runSetup,
-              result: _setupResult,
-              timeMs: _setupTimeMs,
-              showBadge: true,
-              runsInBackground: true,
-            ),
-
-            const SizedBox(height: 12),
-
-            _buildOperationCard(
-              title: 'Generate Proof',
-              description: _selectedCircuit == CircuitType.prepare
-                  ? 'Generate proof using existing keys (runs in background isolate, non-blocking)'
-                  : 'Generate proof using existing keys (runs on main thread, small circuit)',
-              icon: Icons.calculate,
-              onPressed: _runProve,
-              result: _proveResult,
-              detailedTimings: _proveTimings,
-              showBadge: true,
-              runsInBackground: _selectedCircuit == CircuitType.prepare,
-            ),
-
-            const SizedBox(height: 12),
+            if (_selectedCircuit == CircuitType.show) ...[
+              _buildOperationCard(
+                title: 'Generate Proof (Show Circuit)',
+                description: 'Generate proof for Show circuit using existing keys (runs synchronously, fast)',
+                icon: Icons.calculate,
+                onPressed: _runProveShow,
+                result: _fullWorkflowResult,
+                detailedTimings: _fullWorkflowTimings,
+              ),
+              const SizedBox(height: 12),
+            ],
 
             _buildOperationCard(
               title: 'Run Full Workflow',
@@ -926,8 +1011,6 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
               result: _fullWorkflowResult,
               detailedTimings: _fullWorkflowTimings,
               isPrimary: true,
-              showBadge: true,
-              runsInBackground: false,
             ),
 
             const SizedBox(height: 16),
@@ -949,6 +1032,10 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   }
 
   String _getCurrentPhaseText() {
+    if (_isRunningBatch) {
+      return 'Running Batch Operations';
+    }
+
     switch (_currentPhase) {
       case OperationPhase.setup:
         return 'Setting up circuit keys...';
