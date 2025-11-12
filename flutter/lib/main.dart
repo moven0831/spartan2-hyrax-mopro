@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
@@ -84,6 +85,21 @@ Future<void> _copyAssetsToDocuments() async {
   }
 }
 
+/// Top-level isolate entry point functions
+/// These must be top-level or static to be callable from compute()
+
+Future<String> _isolateSetupPrepare(String documentsPath) async {
+  return await setupPrepareKeys(documentsPath: documentsPath);
+}
+
+Future<String> _isolateSetupShow(String documentsPath) async {
+  return await setupShowKeys(documentsPath: documentsPath);
+}
+
+Future<String> _isolateProvePrepare(String documentsPath) async {
+  return await provePrepareCircuit(documentsPath: documentsPath);
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -116,6 +132,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   OperationPhase _currentPhase = OperationPhase.idle;
 
   bool _isOperating = false;
+  bool _isBackgroundOperation = false;
   String? _setupResult;
   String? _proveResult;
   String? _fullWorkflowResult;
@@ -126,6 +143,10 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   int? _proveTimeMs;
   Map<String, int>? _proveTimings;
   Map<String, int>? _fullWorkflowTimings;
+
+  // Background operation tracking
+  DateTime? _operationStartTime;
+  int? _lastOperationTimeMs;
 
   @override
   void initState() {
@@ -200,21 +221,32 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   Future<void> _runSetup() async {
     setState(() {
       _isOperating = true;
+      _isBackgroundOperation = true; // Setup always runs in background
       _currentPhase = OperationPhase.setup;
       _error = null;
       _setupResult = null;
       _setupTimeMs = null;
+      _operationStartTime = DateTime.now();
     });
 
     try {
       final documentsPath = await _getDocumentsPath();
-      final result = _selectedCircuit == CircuitType.prepare
-          ? await setupPrepareKeys(documentsPath: documentsPath)
-          : await setupShowKeys(documentsPath: documentsPath);
+
+      // Run in background isolate using compute()
+      final result = await compute(
+        _selectedCircuit == CircuitType.prepare
+            ? _isolateSetupPrepare
+            : _isolateSetupShow,
+        documentsPath,
+      );
+
+      final duration = DateTime.now().difference(_operationStartTime!);
+      final timeMs = duration.inMilliseconds;
 
       setState(() {
         _setupResult = result;
         _setupTimeMs = _parseTimeFromResult(result);
+        _lastOperationTimeMs = timeMs;
         _currentPhase = OperationPhase.complete;
       });
     } catch (e) {
@@ -225,30 +257,43 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     } finally {
       setState(() {
         _isOperating = false;
+        _isBackgroundOperation = false;
       });
     }
   }
 
   Future<void> _runProve() async {
+    // Only Prepare circuit runs in background
+    final runsInBackground = _selectedCircuit == CircuitType.prepare;
+
     setState(() {
       _isOperating = true;
+      _isBackgroundOperation = runsInBackground;
       _currentPhase = OperationPhase.proving;
       _error = null;
       _proveResult = null;
       _proveTimeMs = null;
       _proveTimings = null;
+      _operationStartTime = DateTime.now();
     });
 
     try {
       final documentsPath = await _getDocumentsPath();
-      final result = _selectedCircuit == CircuitType.prepare
-          ? await provePrepareCircuit(documentsPath: documentsPath)
+
+      // Prepare circuit: run in background isolate
+      // Show circuit: run on-the-fly (synchronous)
+      final result = runsInBackground
+          ? await compute(_isolateProvePrepare, documentsPath)
           : await proveShowCircuit(documentsPath: documentsPath);
+
+      final duration = DateTime.now().difference(_operationStartTime!);
+      final timeMs = duration.inMilliseconds;
 
       setState(() {
         _proveResult = result;
         _proveTimings = _parseDetailedTimings(result);
         _proveTimeMs = _proveTimings?['total'];
+        _lastOperationTimeMs = timeMs;
         _currentPhase = OperationPhase.verifying;
       });
 
@@ -266,6 +311,7 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     } finally {
       setState(() {
         _isOperating = false;
+        _isBackgroundOperation = false;
       });
     }
   }
@@ -327,6 +373,9 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
       _proveTimeMs = null;
       _proveTimings = null;
       _fullWorkflowTimings = null;
+      _isBackgroundOperation = false;
+      _operationStartTime = null;
+      _lastOperationTimeMs = null;
     });
   }
 
@@ -656,6 +705,71 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (_isBackgroundOperation) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.cloud_queue,
+                              size: 16,
+                              color: Colors.purple.shade700,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Running in background',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.purple.shade700,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+
+            // Completion Notification
+            if (!_isOperating && _currentPhase == OperationPhase.complete && _lastOperationTimeMs != null)
+              Card(
+                color: Colors.green.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        color: Colors.green.shade700,
+                        size: 28,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Operation completed successfully!',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: Colors.green.shade900,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Total time: ${_lastOperationTimeMs}ms (${(_lastOperationTimeMs! / 1000).toStringAsFixed(2)}s)',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.green.shade700,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
