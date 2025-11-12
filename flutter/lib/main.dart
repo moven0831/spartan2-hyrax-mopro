@@ -89,14 +89,17 @@ Future<void> _copyAssetsToDocuments() async {
 /// These must be top-level or static to be callable from compute()
 
 Future<String> _isolateSetupPrepare(String documentsPath) async {
+  await RustLib.init();  // Initialize Rust bridge in this isolate
   return await setupPrepareKeys(documentsPath: documentsPath);
 }
 
 Future<String> _isolateSetupShow(String documentsPath) async {
+  await RustLib.init();  // Initialize Rust bridge in this isolate
   return await setupShowKeys(documentsPath: documentsPath);
 }
 
 Future<String> _isolateProvePrepare(String documentsPath) async {
+  await RustLib.init();  // Initialize Rust bridge in this isolate
   return await provePrepareCircuit(documentsPath: documentsPath);
 }
 
@@ -432,6 +435,58 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     );
   }
 
+  Widget _buildExecutionBadge(bool isBackground) {
+    if (isBackground) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.purple.shade100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.purple.shade300),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_done, size: 12, color: Colors.purple.shade700),
+            const SizedBox(width: 4),
+            Text(
+              'BACKGROUND',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Colors.purple.shade700,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange.shade300),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.bolt, size: 12, color: Colors.orange.shade700),
+            const SizedBox(width: 4),
+            Text(
+              'SYNC',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Colors.orange.shade700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   Widget _buildOperationCard({
     required String title,
     required String description,
@@ -441,6 +496,8 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
     int? timeMs,
     Map<String, int>? detailedTimings,
     bool isPrimary = false,
+    bool? runsInBackground,
+    bool showBadge = false,
   }) {
     return Card(
       elevation: isPrimary ? 4 : 2,
@@ -458,14 +515,25 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: isPrimary ? Colors.blue.shade900 : null,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isPrimary ? Colors.blue.shade900 : null,
+                              ),
+                            ),
+                          ),
+                          if (showBadge && runsInBackground != null) ...[
+                            const SizedBox(width: 8),
+                            _buildExecutionBadge(runsInBackground),
+                          ],
+                        ],
                       ),
+                      const SizedBox(height: 4),
                       Text(
                         description,
                         style: TextStyle(
@@ -824,34 +892,42 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
             // Operation Cards
             _buildOperationCard(
               title: 'Generate Keys',
-              description: 'Generate proving and verifying keys (one-time setup)',
+              description: 'Generate proving and verifying keys (one-time setup, runs in background)',
               icon: Icons.vpn_key,
               onPressed: _runSetup,
               result: _setupResult,
               timeMs: _setupTimeMs,
+              showBadge: true,
+              runsInBackground: true,
             ),
 
             const SizedBox(height: 12),
 
             _buildOperationCard(
               title: 'Generate Proof',
-              description: 'Generate proof using existing keys',
+              description: _selectedCircuit == CircuitType.prepare
+                  ? 'Generate proof using existing keys (runs in background isolate, non-blocking)'
+                  : 'Generate proof using existing keys (runs on main thread, small circuit)',
               icon: Icons.calculate,
               onPressed: _runProve,
               result: _proveResult,
               detailedTimings: _proveTimings,
+              showBadge: true,
+              runsInBackground: _selectedCircuit == CircuitType.prepare,
             ),
 
             const SizedBox(height: 12),
 
             _buildOperationCard(
               title: 'Run Full Workflow',
-              description: 'Execute complete setup + prove + verify pipeline',
+              description: 'Execute complete setup + prove + verify pipeline (synchronous, for testing)',
               icon: Icons.play_circle,
               onPressed: _runFullWorkflow,
               result: _fullWorkflowResult,
               detailedTimings: _fullWorkflowTimings,
               isPrimary: true,
+              showBadge: true,
+              runsInBackground: false,
             ),
 
             const SizedBox(height: 16),
