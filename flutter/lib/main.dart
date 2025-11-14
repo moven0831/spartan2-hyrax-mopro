@@ -1,11 +1,14 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:mopro_flutter_bindings/src/rust/third_party/spartan2_hyrax_mopro.dart';
 import 'package:mopro_flutter_bindings/src/rust/frb_generated.dart';
+
+import 'services/proof_service_manager.dart';
+import 'services/models/proof_task.dart';
+import 'services/models/proof_result.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -85,23 +88,9 @@ Future<void> _copyAssetsToDocuments() async {
   }
 }
 
-/// Top-level isolate entry point functions
-/// These must be top-level or static to be callable from compute()
-
-Future<String> _isolateSetupPrepare(String documentsPath) async {
-  await RustLib.init();  // Initialize Rust bridge in this isolate
-  return await setupPrepareKeys(documentsPath: documentsPath);
-}
-
-Future<String> _isolateSetupShow(String documentsPath) async {
-  await RustLib.init();  // Initialize Rust bridge in this isolate
-  return await setupShowKeys(documentsPath: documentsPath);
-}
-
-Future<String> _isolateProvePrepare(String documentsPath) async {
-  await RustLib.init();  // Initialize Rust bridge in this isolate
-  return await provePrepareCircuit(documentsPath: documentsPath);
-}
+/// Note: Background operations now use flutter_background_service
+/// The service runs in a persistent isolate managed by ProofServiceManager
+/// Old compute()-based isolate functions have been removed
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -150,10 +139,21 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   int _currentBatchTaskIndex = 0;
   final int _totalBatchTasks = 3;
 
+  // Background service manager
+  final ProofServiceManager _serviceManager = ProofServiceManager();
+  bool _serviceInitialized = false;
+
   @override
   void initState() {
     super.initState();
     _initializeApp();
+    _initializeBackgroundService();
+  }
+
+  @override
+  void dispose() {
+    _serviceManager.dispose();
+    super.dispose();
   }
 
   Future<void> _initializeApp() async {
@@ -164,6 +164,88 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
         _error = Exception('Initialization failed: $e');
       });
     }
+  }
+
+  Future<void> _initializeBackgroundService() async {
+    try {
+      final initialized = await _serviceManager.initialize();
+      setState(() {
+        _serviceInitialized = initialized;
+      });
+
+      if (!initialized) {
+        debugPrint('Failed to initialize background service');
+        return;
+      }
+
+      // Set up event listeners for background service
+      _serviceManager.onTaskStarted.listen((task) {
+        setState(() {
+          _currentBatchTask = _taskTypeToDisplayName(task.type);
+          _currentBatchTaskIndex = _getTaskIndex(task.type);
+        });
+        debugPrint('Task started: ${task.type.name}');
+      });
+
+      _serviceManager.onTaskCompleted.listen((result) {
+        setState(() {
+          if (result.timings != null) {
+            _batchTimings[_taskTypeToDisplayName(result.taskType)] =
+                result.timings!.totalMs;
+          }
+          _completedBatchTasks.add(_taskTypeToDisplayName(result.taskType));
+
+          // Check if all tasks are completed
+          if (_completedBatchTasks.length >= _totalBatchTasks) {
+            _isRunningBatch = false;
+            _isOperating = false;
+            _isBackgroundOperation = false;
+            _currentBatchTask = null;
+            _currentPhase = OperationPhase.complete;
+          }
+        });
+        debugPrint('Task completed: ${result.taskType.name} - ${result.timings}');
+      });
+
+      _serviceManager.onTaskFailed.listen((result) {
+        setState(() {
+          _error = Exception('${_taskTypeToDisplayName(result.taskType)} failed: ${result.error}');
+          _isRunningBatch = false;
+          _isOperating = false;
+          _isBackgroundOperation = false;
+          _currentBatchTask = null;
+        });
+        debugPrint('Task failed: ${result.taskType.name} - ${result.error}');
+      });
+
+      _serviceManager.onServiceError.listen((error) {
+        setState(() {
+          _error = Exception('Service error: $error');
+        });
+        debugPrint('Service error: $error');
+      });
+    } catch (e) {
+      debugPrint('Error initializing background service: $e');
+      setState(() {
+        _serviceInitialized = false;
+      });
+    }
+  }
+
+  String _taskTypeToDisplayName(ProofTaskType type) {
+    return switch (type) {
+      ProofTaskType.setupPrepare => 'Setup Prepare Keys',
+      ProofTaskType.setupShow => 'Setup Show Keys',
+      ProofTaskType.provePrepare => 'Prove Prepare Circuit',
+    };
+  }
+
+  int _getTaskIndex(ProofTaskType type) {
+    return switch (type) {
+      ProofTaskType.setupPrepare => 0,
+      ProofTaskType.setupShow => 1,
+      ProofTaskType.provePrepare => 2,
+    };
   }
 
   Future<String> _getDocumentsPath() async {
@@ -293,6 +375,13 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   }
 
   Future<void> _runAllBackgroundOperations() async {
+    if (!_serviceInitialized) {
+      setState(() {
+        _error = Exception('Background service not initialized');
+      });
+      return;
+    }
+
     setState(() {
       _isRunningBatch = true;
       _isOperating = true;
@@ -301,59 +390,41 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
       _batchTimings = {};
       _completedBatchTasks = [];
       _currentBatchTaskIndex = 0;
+      _currentPhase = OperationPhase.setup;
     });
 
-    final documentsPath = await _getDocumentsPath();
-    final tasks = [
-      {'name': 'Setup Prepare Keys', 'function': _isolateSetupPrepare},
-      {'name': 'Setup Show Keys', 'function': _isolateSetupShow},
-      {'name': 'Prove Prepare Circuit', 'function': _isolateProvePrepare},
-    ];
+    try {
+      final documentsPath = await _getDocumentsPath();
 
-    for (int i = 0; i < tasks.length; i++) {
-      final task = tasks[i];
-      final taskName = task['name'] as String;
+      // Submit all tasks to the background service
+      // The service will execute them sequentially and send progress updates
+      await _serviceManager.submitTask(
+        type: ProofTaskType.setupPrepare,
+        documentsPath: documentsPath,
+      );
 
+      await _serviceManager.submitTask(
+        type: ProofTaskType.setupShow,
+        documentsPath: documentsPath,
+      );
+
+      await _serviceManager.submitTask(
+        type: ProofTaskType.provePrepare,
+        documentsPath: documentsPath,
+      );
+
+      debugPrint('All tasks submitted to background service');
+
+      // Tasks will be executed in background, and UI updates will come
+      // through the stream listeners set up in _initializeBackgroundService
+    } catch (e) {
       setState(() {
-        _currentBatchTask = taskName;
-        _currentBatchTaskIndex = i;
+        _error = Exception('Failed to submit tasks: $e');
+        _isRunningBatch = false;
+        _isOperating = false;
+        _isBackgroundOperation = false;
       });
-
-      try {
-        final taskStartTime = DateTime.now();
-
-        // Run the task in background isolate
-        await compute(
-          task['function'] as Future<String> Function(String),
-          documentsPath,
-        );
-
-        final taskDuration = DateTime.now().difference(taskStartTime);
-        final taskTimeMs = taskDuration.inMilliseconds;
-
-        setState(() {
-          _batchTimings[taskName] = taskTimeMs;
-          _completedBatchTasks.add(taskName);
-        });
-      } catch (e) {
-        setState(() {
-          _error = Exception('$taskName failed: $e');
-          _isRunningBatch = false;
-          _isOperating = false;
-          _isBackgroundOperation = false;
-        });
-        return; // Stop batch execution on error
-      }
     }
-
-    // All tasks completed successfully
-    setState(() {
-      _isRunningBatch = false;
-      _isOperating = false;
-      _isBackgroundOperation = false;
-      _currentBatchTask = null;
-      _currentPhase = OperationPhase.complete;
-    });
   }
 
   void _reset() {
