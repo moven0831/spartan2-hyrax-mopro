@@ -29,6 +29,7 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -58,11 +59,11 @@ android {
             // Enables code shrinking, obfuscation, and optimization for only
             // your project's release build type. Make sure to use a build
             // variant with `debuggable false`.
-            minifyEnabled false
+            minifyEnabled true
 
             // Enables resource shrinking, which is performed by the
             // Android Gradle plugin.
-            shrinkResources false
+            shrinkResources true
         }
     }
 }
@@ -71,4 +72,6 @@ flutter {
     source '../..'
 }
 
-dependencies {}
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+}
