@@ -23,6 +23,7 @@ class ProofServiceManager {
 
   bool _isInitialized = false;
   bool _isServiceRunning = false;
+  Completer<void>? _serviceReadyCompleter;
 
   // Public stream getters
   Stream<ProofTask> get onTaskQueued => _taskQueuedController.stream;
@@ -47,7 +48,7 @@ class ProofServiceManager {
           onStart: onBackgroundStart,
           autoStart: false,
           isForegroundMode: true,
-          notificationChannelId: 'zkid_proof_generation',
+          notificationChannelId: 'zkid_completion',
           initialNotificationTitle: 'zkID Proof Generation',
           initialNotificationContent: 'Initializing background service...',
           foregroundServiceNotificationId: 888,
@@ -84,8 +85,24 @@ class ProofServiceManager {
     }
 
     try {
+      // Create a completer to wait for service ready
+      _serviceReadyCompleter = Completer<void>();
+
       final started = await _service.startService();
       _isServiceRunning = started;
+
+      if (started) {
+        print('   Waiting for service to be fully ready...');
+        // Wait for the service to signal it's ready (with timeout)
+        await _serviceReadyCompleter!.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            print('   ⚠️  Service ready timeout - proceeding anyway');
+          },
+        );
+        print('   Service is fully ready!');
+      }
+
       return started;
     } catch (e) {
       _serviceErrorController.add('Failed to start service: $e');
@@ -106,9 +123,15 @@ class ProofServiceManager {
     required ProofTaskType type,
     required String documentsPath,
   }) async {
+    print('📝 ProofServiceManager: Submitting task ${type.name}');
+    print('   Service running: $_isServiceRunning');
+    print('   Service initialized: $_isInitialized');
+
     // Ensure service is running
     if (!_isServiceRunning) {
+      print('   Starting background service...');
       final started = await startService();
+      print('   Service started: $started');
       if (!started) {
         throw Exception('Failed to start background service');
       }
@@ -123,7 +146,9 @@ class ProofServiceManager {
       },
     );
 
+    print('   Invoking submitTask with taskId: $taskId');
     _service.invoke('submitTask', task.toJson());
+    print('   Task submitted successfully');
     return taskId;
   }
 
@@ -136,7 +161,12 @@ class ProofServiceManager {
   void _setupEventListeners() {
     // Service ready event
     _service.on('serviceReady').listen((event) {
+      print('📢 Service ready event received');
       _serviceReadyController.add(true);
+      // Complete the ready completer if it exists
+      if (_serviceReadyCompleter != null && !_serviceReadyCompleter!.isCompleted) {
+        _serviceReadyCompleter!.complete();
+      }
     });
 
     // Task queued event

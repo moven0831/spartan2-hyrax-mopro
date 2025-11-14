@@ -9,6 +9,7 @@ import 'package:mopro_flutter_bindings/src/rust/frb_generated.dart';
 import 'services/proof_service_manager.dart';
 import 'services/models/proof_task.dart';
 import 'services/models/proof_result.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -159,6 +160,11 @@ class _CircuitProverScreenState extends State<CircuitProverScreen> {
   Future<void> _initializeApp() async {
     try {
       await initApp();
+
+      // Initialize and request notification permissions
+      final notificationService = NotificationService();
+      await notificationService.initialize();
+      await notificationService.requestPermissions();
     } catch (e) {
       setState(() {
         _error = Exception('Initialization failed: $e');

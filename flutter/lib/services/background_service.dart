@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:mopro_flutter_bindings/src/rust/third_party/spartan2_hyrax_mopro.dart';
 import 'package:mopro_flutter_bindings/src/rust/frb_generated.dart';
 
 import 'models/proof_task.dart';
 import 'models/proof_result.dart';
+import 'notification_service.dart';
 
 /// Entry point for the background service
 /// This function runs in a separate isolate and persists even after app closure
@@ -25,6 +27,19 @@ Future<bool> onBackgroundStart(ServiceInstance service) async {
     });
     service.stopSelf();
     return false;
+  }
+
+  // Initialize notification service BEFORE setting up foreground service
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+
+  // Set up foreground notification on Android AFTER notification channels are created
+  if (service is AndroidServiceInstance) {
+    service.setAsForegroundService();
+    service.setForegroundNotificationInfo(
+      title: 'zkID Proof Generation',
+      content: 'Background operations in progress',
+    );
   }
 
   // Task queue and processing state
@@ -52,7 +67,13 @@ Future<bool> onBackgroundStart(ServiceInstance service) async {
 
       // Start processing if not already running
       if (!isProcessing) {
-        _processQueue(service, taskQueue, () => isProcessing, (value) => isProcessing = value);
+        unawaited(_processQueue(
+          service,
+          taskQueue,
+          () => isProcessing,
+          (value) => isProcessing = value,
+          notificationService,
+        ));
       }
     } catch (e) {
       service.invoke('serviceError', {
@@ -76,15 +97,6 @@ Future<bool> onBackgroundStart(ServiceInstance service) async {
     service.stopSelf();
   });
 
-  // Set up foreground notification on Android
-  if (service is AndroidServiceInstance) {
-    service.setAsForegroundService();
-    service.setForegroundNotificationInfo(
-      title: 'zkID Proof Generation',
-      content: 'Background operations in progress',
-    );
-  }
-
   return true; // Service started successfully
 }
 
@@ -94,27 +106,61 @@ Future<void> _processQueue(
   Queue<ProofTask> queue,
   bool Function() isProcessingGetter,
   void Function(bool) isProcessingSetter,
+  NotificationService notificationService,
 ) async {
   isProcessingSetter(true);
 
+  final batchStartTime = DateTime.now();
+  final Map<String, int> completedTaskTimings = {};
+  final List<ProofTask> completedTasks = [];
+
   while (queue.isNotEmpty) {
     final task = queue.removeFirst();
-    await _executeTask(service, task);
+    await _executeTask(service, task, notificationService);
+
+    // Track completed task
+    if (task.status == TaskStatus.completed && task.durationMs != null) {
+      completedTasks.add(task);
+      completedTaskTimings[_taskTypeToDisplayName(task.type)] = task.durationMs!;
+    }
   }
 
   isProcessingSetter(false);
+
+  // Calculate total batch time
+  final totalBatchTime = DateTime.now().difference(batchStartTime);
+  final totalSeconds = totalBatchTime.inSeconds;
 
   // Update notification when all tasks complete
   if (service is AndroidServiceInstance) {
     service.setForegroundNotificationInfo(
       title: 'zkID Proof Generation',
-      content: 'All tasks completed',
+      content: 'All tasks completed in ${totalSeconds}s',
     );
+  }
+
+  // Send completion notification if any tasks completed
+  if (completedTasks.isNotEmpty) {
+    await notificationService.showCompletionNotification(
+      timings: completedTaskTimings,
+      totalTimeSeconds: totalSeconds,
+    );
+
+    // Notify UI about batch completion
+    service.invoke('batchCompleted', {
+      'completedCount': completedTasks.length,
+      'totalTimeSeconds': totalSeconds,
+      'timings': completedTaskTimings,
+    });
   }
 }
 
 /// Execute a single proof task
-Future<void> _executeTask(ServiceInstance service, ProofTask task) async {
+Future<void> _executeTask(
+  ServiceInstance service,
+  ProofTask task,
+  NotificationService notificationService,
+) async {
   task.status = TaskStatus.running;
   task.startedAt = DateTime.now();
 
@@ -152,6 +198,23 @@ Future<void> _executeTask(ServiceInstance service, ProofTask task) async {
       taskType: task.type,
       rustOutput: result,
     );
+
+    // Send individual task completion notification with detailed timings
+    if (task.durationMs != null) {
+      // Convert timings to Map<String, int>
+      Map<String, int>? timingsMap;
+      if (proofResult.timings != null) {
+        final jsonMap = proofResult.timings!.toJson();
+        timingsMap = jsonMap.map((key, value) =>
+          MapEntry(key, value as int? ?? 0)).cast<String, int>();
+      }
+
+      await notificationService.showTaskCompletionNotification(
+        taskName: _taskTypeToDisplayName(task.type),
+        durationMs: task.durationMs!,
+        detailedTimings: timingsMap,
+      );
+    }
 
     // Notify UI of completion
     service.invoke('taskCompleted', {

@@ -32,6 +32,7 @@ dependencies:
   flutter_background_service: ^5.0.10
   shared_preferences: ^2.3.3
   uuid: ^4.5.1
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
   integration_test:

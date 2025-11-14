@@ -2,6 +2,8 @@ PODS:
   - Flutter (1.0.0)
   - flutter_background_service_ios (0.0.3):
     - Flutter
+  - flutter_local_notifications (0.0.1):
+    - Flutter
   - integration_test (0.0.1):
     - Flutter
   - mopro_flutter_bindings (0.0.1):
@@ -16,6 +18,7 @@ PODS:
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_background_service_ios (from `.symlinks/plugins/flutter_background_service_ios/ios`)
+  - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - integration_test (from `.symlinks/plugins/integration_test/ios`)
   - mopro_flutter_bindings (from `.symlinks/plugins/mopro_flutter_bindings/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
@@ -26,6 +29,8 @@ EXTERNAL SOURCES:
     :path: Flutter
   flutter_background_service_ios:
     :path: ".symlinks/plugins/flutter_background_service_ios/ios"
+  flutter_local_notifications:
+    :path: ".symlinks/plugins/flutter_local_notifications/ios"
   integration_test:
     :path: ".symlinks/plugins/integration_test/ios"
   mopro_flutter_bindings:
@@ -38,6 +43,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_background_service_ios: 00d31bdff7b4bfe06d32375df358abe0329cf87e
+  flutter_local_notifications: 395056b3175ba4f08480a7c5de30cd36d69827e4
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
   mopro_flutter_bindings: 8f83966b4d7fea00976d376d012addf968f3c469
   path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
