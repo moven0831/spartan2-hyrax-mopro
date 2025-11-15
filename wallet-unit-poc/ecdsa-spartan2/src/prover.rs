@@ -1,39 +1,31 @@
-use std::{fs::File, path::PathBuf, time::Instant};
+use std::{env::current_dir, fs::File, time::Instant};
 
 use crate::{
     circuits::prepare_circuit::jwt_witness,
-    setup::load_proving_key,
-    utils::{calculate_jwt_output_indices, convert_bigint_to_scalar, parse_jwt_inputs},
+    setup::{
+        load_instance, load_proof, load_proving_key, load_shared_blinds, load_verifying_key,
+        load_witness, save_instance, save_proof, save_shared_blinds, save_witness,
+    },
+    utils::{convert_bigint_to_scalar, parse_jwt_inputs},
     Scalar, E,
 };
 
 use bellpepper_core::SynthesisError;
+use ff::{derive::rand_core::OsRng, Field};
 use serde_json::Value;
 use spartan2::{
-    traits::{circuit::SpartanCircuit, snark::R1CSSNARKTrait},
+    bellpepper::{solver::SatisfyingAssignment, zk_r1cs::SpartanWitness},
+    errors::SpartanError,
+    provider::traits::DlogGroup,
+    traits::{
+        circuit::SpartanCircuit, snark::R1CSSNARKTrait, transcript::TranscriptEngineTrait, Engine,
+    },
     zk_spartan::R1CSSNARK,
 };
 use tracing::info;
 
-/// Timing metrics for circuit execution
-#[derive(Debug, Clone)]
-pub struct CircuitTimings {
-    pub setup_ms: u128,
-    pub prep_prove_ms: u128,
-    pub prove_ms: u128,
-    pub verify_ms: u128,
-    pub proof_size_bytes: Option<usize>,
-}
-
-impl CircuitTimings {
-    pub fn total_ms(&self) -> u128 {
-        self.setup_ms + self.prep_prove_ms + self.prove_ms + self.verify_ms
-    }
-}
-
 /// Run circuit using ZK-Spartan (setup, prepare, prove, verify)
-/// Returns timing metrics for all phases
-pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) -> CircuitTimings {
+pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) {
     // SETUP using ZK-Spartan
     let t0 = Instant::now();
     let (pk, vk) = R1CSSNARK::<E>::setup(circuit.clone()).expect("setup failed");
@@ -54,14 +46,6 @@ pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) -
     let prove_ms = t0.elapsed().as_millis();
     info!(elapsed_ms = prove_ms, "ZK-Spartan prove");
 
-    // Calculate proof size
-    let proof_size = bincode::serialize(&proof)
-        .map(|bytes| bytes.len())
-        .ok();
-    if let Some(size) = proof_size {
-        info!(proof_size_bytes = size, "Proof size");
-    }
-
     // VERIFY
     let t0 = Instant::now();
     proof.verify(&vk).expect("verify errored");
@@ -75,33 +59,24 @@ pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) -
     );
 
     info!("comm_W_shared: {:?}", proof.comm_W_shared());
-
-    CircuitTimings {
-        setup_ms,
-        prep_prove_ms: prep_ms,
-        prove_ms,
-        verify_ms,
-        proof_size_bytes: proof_size,
-    }
 }
 
-/// Timing metrics for prove-only execution (no setup)
-#[derive(Debug, Clone)]
-pub struct ProveTimings {
-    pub prep_prove_ms: u128,
-    pub prove_ms: u128,
-    pub proof_size_bytes: Option<usize>,
-}
-
-impl ProveTimings {
-    pub fn total_ms(&self) -> u128 {
-        self.prep_prove_ms + self.prove_ms
+pub fn generate_shared_blinds<E: Engine>(shared_blinds_path: &str, n: usize) {
+    let blinds: Vec<_> = (0..n).map(|_| E::Scalar::random(OsRng)).collect();
+    if let Err(e) = save_shared_blinds::<E>(shared_blinds_path, &blinds) {
+        eprintln!("Failed to save instance: {}", e);
+        std::process::exit(1);
     }
 }
 
 /// Only run the proving part of the circuit using ZK-Spartan (prep_prove, prove)
-/// Returns timing metrics for proving phases
-pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C, pk_path: &str) -> ProveTimings {
+pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
+    circuit: C,
+    pk_path: &str,
+    instance_path: &str,
+    witness_path: &str,
+    proof_path: &str,
+) {
     let pk = load_proving_key(pk_path).expect("load proving key failed");
 
     let t0 = Instant::now();
@@ -111,18 +86,33 @@ pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C,
     info!("ZK-Spartan prep_prove: {} ms", prep_ms);
 
     let t0 = Instant::now();
-    let proof = R1CSSNARK::<E>::prove(&pk, circuit.clone(), &mut prep_snark, false).expect("prove failed");
+    let mut transcript = <E as Engine>::TE::new(b"R1CSSNARK");
+    transcript.absorb(b"vk", &pk.vk_digest);
+
+    let public_values = SpartanCircuit::<E>::public_values(&circuit)
+        .map_err(|e| SpartanError::SynthesisError {
+            reason: format!("Circuit does not provide public IO: {e}"),
+        })
+        .unwrap();
+
+    // absorb the public values into the transcript
+    transcript.absorb(b"public_values", &public_values.as_slice());
+
+    let (instance, witness) = SatisfyingAssignment::r1cs_instance_and_witness(
+        &mut prep_snark.ps,
+        &pk.S,
+        &pk.ck,
+        &circuit,
+        false,
+        &mut transcript,
+    )
+    .unwrap();
+
+    // generate a witness and proof
+    let res = R1CSSNARK::<E>::prove_inner(&pk, &instance, &witness, &mut transcript).unwrap();
     let prove_ms = t0.elapsed().as_millis();
 
     info!("ZK-Spartan prove: {} ms", prove_ms);
-
-    // Calculate proof size
-    let proof_size = bincode::serialize(&proof)
-        .map(|bytes| bytes.len())
-        .ok();
-    if let Some(size) = proof_size {
-        info!(proof_size_bytes = size, "Proof size");
-    }
 
     let total_ms = prep_ms + prove_ms;
 
@@ -131,30 +121,122 @@ pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C,
         prep_ms, prove_ms, total_ms
     );
 
-    ProveTimings {
-        prep_prove_ms: prep_ms,
-        prove_ms,
-        proof_size_bytes: proof_size,
+    // Save the instance to file
+    if let Err(e) = save_instance(instance_path, &instance) {
+        eprintln!("Failed to save instance: {}", e);
+        std::process::exit(1);
+    }
+
+    // Save the witness to file
+    if let Err(e) = save_witness(witness_path, &witness) {
+        eprintln!("Failed to save witness: {}", e);
+        std::process::exit(1);
+    }
+
+    // Save the proof to file
+    if let Err(e) = save_proof(proof_path, &res) {
+        eprintln!("Failed to save proof: {}", e);
+        std::process::exit(1);
     }
 }
 
-/// Generate witness for the Prepare circuit
-/// Returns the witness vector and the extracted KeyBindingX and KeyBindingY values
+pub fn reblind<C: SpartanCircuit<E>>(
+    circuit: C,
+    pk_path: &str,
+    instance_path: &str,
+    witness_path: &str,
+    proof_path: &str,
+    shared_blinds_path: &str,
+) {
+    let pk = load_proving_key(pk_path).expect("load proving key failed");
+
+    let instance = load_instance(instance_path).expect("load instance failed");
+    let witness = load_witness(witness_path).expect("load witness failed");
+
+    let randomness =
+        load_shared_blinds::<E>(shared_blinds_path).expect("load shared_blinds failed");
+
+    assert_eq!(randomness.len(), instance.num_shared_rows());
+
+    // Reblind instance and witness
+    let mut reblind_transcript = <E as Engine>::TE::new(b"R1CSSNARK");
+    reblind_transcript.absorb(b"vk", &pk.vk_digest);
+
+    let public_values = SpartanCircuit::<E>::public_values(&circuit)
+        .map_err(|e| SpartanError::SynthesisError {
+            reason: format!("Circuit does not provide public IO: {e}"),
+        })
+        .unwrap();
+
+    // absorb the public values into the reblind_transcript
+    reblind_transcript.absorb(b"public_values", &public_values.as_slice());
+
+    let (new_instance, new_witness) = SatisfyingAssignment::reblind_r1cs_instance_and_witness(
+        &randomness,
+        instance,
+        witness,
+        &pk.ck,
+        &mut reblind_transcript,
+    )
+    .unwrap();
+
+    println!(
+        "new instance: {:?}",
+        new_instance
+            .clone()
+            .comm_W_shared
+            .map(|v| v.comm.iter().for_each(|v| println!("v: {:?}", v.affine())))
+    );
+
+    // generate a witness and proof
+    let res =
+        R1CSSNARK::<E>::prove_inner(&pk, &new_instance, &new_witness, &mut reblind_transcript)
+            .unwrap();
+
+    // Save the instance to file
+    if let Err(e) = save_instance(instance_path, &new_instance) {
+        eprintln!("Failed to save instance: {}", e);
+        std::process::exit(1);
+    }
+
+    // Save the witness to file
+    if let Err(e) = save_witness(witness_path, &new_witness) {
+        eprintln!("Failed to save witness: {}", e);
+        std::process::exit(1);
+    }
+
+    // Save the proof to file
+    if let Err(e) = save_proof(proof_path, &res) {
+        eprintln!("Failed to save proof: {}", e);
+        std::process::exit(1);
+    }
+}
+
+/// Only run the verification part using ZK-Spartan
+pub fn verify_circuit(proof_path: &str, vk_path: &str) {
+    let proof = load_proof(proof_path).expect("load proof failed");
+    let vk = load_verifying_key(vk_path).expect("load verifying key failed");
+
+    let t0 = Instant::now();
+    proof.verify(&vk).expect("verify errored");
+    let verify_ms = t0.elapsed().as_millis();
+    info!(elapsed_ms = verify_ms, "ZK-Spartan verify");
+
+    info!("Verification successful! Time: {} ms", verify_ms);
+}
+
+/// Generate witness for the Prepare circuit.
+/// Returns the full witness vector, the decoded age-claim bytes, and the extracted KeyBindingX/Y values.
 pub fn generate_prepare_witness(
     input_json_path: Option<&std::path::Path>,
-) -> Result<(Vec<Scalar>, Scalar, Scalar), SynthesisError> {
-    // If input path provided, use it; otherwise try current dir then fallback to compile-time path
-    let json_path = if let Some(p) = input_json_path {
-        p.to_path_buf()
-    } else {
-        let runtime_path = PathBuf::from("circom/jwt_input.json");
-        if runtime_path.exists() {
-            runtime_path
-        } else {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../circom/inputs/jwt/default.json")
-        }
-    };
+) -> Result<Vec<Scalar>, SynthesisError> {
+    let root = current_dir().unwrap().join("../circom");
+
+    let json_path = input_json_path
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| root.join("inputs/jwt/default.json"));
+
+    info!("Loading prepare inputs from {}", json_path.display());
 
     let json_file = File::open(&json_path).map_err(|_| SynthesisError::AssignmentMissing)?;
 
@@ -171,27 +253,5 @@ pub fn generate_prepare_witness(
     info!("rust-witness time: {} ms", t0.elapsed().as_millis());
 
     let witness: Vec<Scalar> = convert_bigint_to_scalar(witness_bigint)?;
-
-    // Calculate KeyBindingX and KeyBindingY indices from circuit parameters
-    // JWT circuit params: [maxMessageLength, maxB64PayloadLength, maxMatches, maxSubstringLength, maxClaimsLength]
-    // From circuits.json: [2048, 2000, 4, 50, 128]
-
-    // Todo: we can make this dynamic by parsing the circuit parameters from the circuit file
-    const MAX_MATCHES: usize = 4;
-    const MAX_CLAIMS_LENGTH: usize = 128;
-
-    let (keybinding_x_idx, keybinding_y_idx) =
-        calculate_jwt_output_indices(MAX_MATCHES, MAX_CLAIMS_LENGTH);
-
-    let keybinding_x = witness
-        .get(keybinding_x_idx)
-        .copied()
-        .ok_or_else(|| SynthesisError::AssignmentMissing)?;
-
-    let keybinding_y = witness
-        .get(keybinding_y_idx)
-        .copied()
-        .ok_or_else(|| SynthesisError::AssignmentMissing)?;
-
-    Ok((witness, keybinding_x, keybinding_y))
+    Ok(witness)
 }
