@@ -1557,7 +1557,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 [[package]]
 name = "spartan2"
 version = "0.4.0"
-source = "git+https://github.com/therealyingtong/Spartan2.git?branch=zk#01020f09dcddd6b46bdb5a16725b75d8695d0e61"
+source = "git+https://github.com/moven0831/Spartan2.git?branch=chore%2Fpublic-reblind-api#98ccf4a6cfb5233fdfe735d2e184efc81e723d9c"
 dependencies = [
  "bellpepper",
  "bellpepper-core",
