@@ -4,10 +4,8 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:mopro_flutter_bindings/src/rust/frb_generated.dart';
-
-import 'services/proof_service_manager.dart';
-import 'services/models/proof_task.dart';
-import 'services/models/proof_result.dart' as app_models;
+import 'package:mopro_flutter_bindings/src/rust/third_party/spartan2_hyrax_mopro.dart'
+    as rust_api;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,7 +42,8 @@ Future<void> _copyAssetsToDocuments() async {
         final compressed = data.buffer.asUint8List();
         final decompressed = gzip.decode(compressed);
         await targetFile.writeAsBytes(decompressed);
-        debugPrint('Decompressed ${entry.value}: ${(compressed.length / 1024 / 1024).toStringAsFixed(2)}MB → ${(decompressed.length / 1024 / 1024).toStringAsFixed(2)}MB');
+        debugPrint(
+            'Decompressed ${entry.value}: ${(compressed.length / 1024 / 1024).toStringAsFixed(2)}MB → ${(decompressed.length / 1024 / 1024).toStringAsFixed(2)}MB');
       }
     }
 
@@ -82,19 +81,51 @@ class E2EProofWorkflowScreen extends StatefulWidget {
   const E2EProofWorkflowScreen({super.key});
 
   @override
-  State<E2EProofWorkflowScreen> createState() => _E2EProofWorkflowScreenState();
+  State<E2EProofWorkflowScreen> createState() =>
+      _E2EProofWorkflowScreenState();
+}
+
+enum ProofTaskType {
+  setupPrepare,
+  setupShow,
+  generateBlinds,
+  provePrepare,
+  proveShow,
+  reblindPrepare,
+  reblindShow,
+  verifyPrepare,
+  verifyShow,
+}
+
+class TaskResult {
+  final ProofTaskType taskType;
+  final bool success;
+  final String? error;
+  final rust_api.ProofResult? proofResult;
+  final String? message;
+  final bool? verifyResult;
+
+  TaskResult({
+    required this.taskType,
+    required this.success,
+    this.error,
+    this.proofResult,
+    this.message,
+    this.verifyResult,
+  });
+
+  BigInt? get totalMs => proofResult?.totalMs;
+  BigInt? get proofSizeBytes => proofResult?.proofSizeBytes;
+  String? get commWShared => proofResult?.commWShared;
 }
 
 class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
-  final ProofServiceManager _serviceManager = ProofServiceManager();
-  bool _serviceInitialized = false;
-
   // Operation state
   bool _isOperating = false;
   Exception? _error;
 
   // Step results
-  Map<String, app_models.ProofResult> _results = {};
+  Map<String, TaskResult> _results = {};
   Map<String, bool> _completedSteps = {};
 
   // Batch operation state
@@ -113,76 +144,23 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
     ProofTaskType.verifyShow,
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _initializeApp();
-  }
-
-  @override
-  void dispose() {
-    _serviceManager.dispose();
-    super.dispose();
-  }
-
-  Future<void> _initializeApp() async {
-    try {
-      await _serviceManager.initialize();
-      setState(() => _serviceInitialized = true);
-
-      _serviceManager.onTaskCompleted.listen((result) {
-        setState(() {
-          _results[result.taskType.name] = result;
-          _completedSteps[result.taskType.name] = result.success;
-
-          if (_isRunningBatch) {
-            _currentBatchStepIndex++;
-            if (_currentBatchStepIndex < _e2eSteps.length) {
-              _currentBatchStep = _taskTypeToDisplayName(_e2eSteps[_currentBatchStepIndex]);
-            } else {
-              _isRunningBatch = false;
-              _isOperating = false;
-              _currentBatchStep = null;
-            }
-          } else {
-            _isOperating = false;
-          }
-        });
-      });
-
-      _serviceManager.onTaskFailed.listen((result) {
-        setState(() {
-          _error = Exception('${_taskTypeToDisplayName(result.taskType)} failed: ${result.error}');
-          _isRunningBatch = false;
-          _isOperating = false;
-          _currentBatchStep = null;
-        });
-      });
-
-      _serviceManager.onServiceError.listen((error) {
-        setState(() {
-          _error = Exception('Service error: $error');
-        });
-      });
-    } catch (e) {
-      setState(() {
-        _serviceInitialized = false;
-        _error = Exception('Failed to initialize service: $e');
-      });
-    }
-  }
-
   Future<String> _getDocumentsPath() async {
     final directory = await getApplicationDocumentsDirectory();
-    return directory.path;
+    return '${directory.path}/circom';
+  }
+
+  String? _getInputPath(ProofTaskType taskType) {
+    if (taskType == ProofTaskType.setupPrepare ||
+        taskType == ProofTaskType.provePrepare) {
+      return 'jwt_input.json';
+    } else if (taskType == ProofTaskType.setupShow ||
+        taskType == ProofTaskType.proveShow) {
+      return 'show_input.json';
+    }
+    return null;
   }
 
   Future<void> _runOperation(ProofTaskType taskType) async {
-    if (!_serviceInitialized) {
-      setState(() => _error = Exception('Service not initialized'));
-      return;
-    }
-
     setState(() {
       _isOperating = true;
       _error = null;
@@ -190,24 +168,137 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
     try {
       final documentsPath = await _getDocumentsPath();
-      await _serviceManager.submitTask(
-        type: taskType,
-        documentsPath: documentsPath,
-      );
+      final inputPath = _getInputPath(taskType);
+      TaskResult result;
+
+      switch (taskType) {
+        case ProofTaskType.setupPrepare:
+          final message = await rust_api.setupPrepareKeys(
+            documentsPath: documentsPath,
+            inputPath: inputPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: true,
+            message: message,
+          );
+          break;
+
+        case ProofTaskType.setupShow:
+          final message = await rust_api.setupShowKeys(
+            documentsPath: documentsPath,
+            inputPath: inputPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: true,
+            message: message,
+          );
+          break;
+
+        case ProofTaskType.generateBlinds:
+          final message = await rust_api.generateSharedBlinds(
+            documentsPath: documentsPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: true,
+            message: message,
+          );
+          break;
+
+        case ProofTaskType.provePrepare:
+          final proofResult = await rust_api.provePrepare(
+            documentsPath: documentsPath,
+            inputPath: inputPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: true,
+            proofResult: proofResult,
+          );
+          break;
+
+        case ProofTaskType.proveShow:
+          final proofResult = await rust_api.proveShow(
+            documentsPath: documentsPath,
+            inputPath: inputPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: true,
+            proofResult: proofResult,
+          );
+          break;
+
+        case ProofTaskType.reblindPrepare:
+          final proofResult = await rust_api.reblindPrepare(
+            documentsPath: documentsPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: true,
+            proofResult: proofResult,
+          );
+          break;
+
+        case ProofTaskType.reblindShow:
+          final proofResult = await rust_api.reblindShow(
+            documentsPath: documentsPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: true,
+            proofResult: proofResult,
+          );
+          break;
+
+        case ProofTaskType.verifyPrepare:
+          final verifyResult = await rust_api.verifyPrepare(
+            documentsPath: documentsPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: verifyResult,
+            verifyResult: verifyResult,
+          );
+          break;
+
+        case ProofTaskType.verifyShow:
+          final verifyResult = await rust_api.verifyShow(
+            documentsPath: documentsPath,
+          );
+          result = TaskResult(
+            taskType: taskType,
+            success: verifyResult,
+            verifyResult: verifyResult,
+          );
+          break;
+      }
+
+      setState(() {
+        _results[taskType.name] = result;
+        _completedSteps[taskType.name] = result.success;
+        _isOperating = false;
+      });
     } catch (e) {
       setState(() {
-        _error = Exception('Failed to submit task: $e');
+        final result = TaskResult(
+          taskType: taskType,
+          success: false,
+          error: e.toString(),
+        );
+        _results[taskType.name] = result;
+        _completedSteps[taskType.name] = false;
+        _error = Exception('${_taskTypeToDisplayName(taskType)} failed: $e');
         _isOperating = false;
+        _isRunningBatch = false;
+        _currentBatchStep = null;
       });
     }
   }
 
   Future<void> _runCompleteE2EWorkflow() async {
-    if (!_serviceInitialized) {
-      setState(() => _error = Exception('Service not initialized'));
-      return;
-    }
-
     setState(() {
       _isRunningBatch = true;
       _isOperating = true;
@@ -219,19 +310,39 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
     });
 
     try {
-      final documentsPath = await _getDocumentsPath();
+      for (int i = 0; i < _e2eSteps.length; i++) {
+        final taskType = _e2eSteps[i];
 
-      for (final taskType in _e2eSteps) {
-        await _serviceManager.submitTask(
-          type: taskType,
-          documentsPath: documentsPath,
-        );
+        setState(() {
+          _currentBatchStepIndex = i;
+          _currentBatchStep = _taskTypeToDisplayName(taskType);
+        });
+
+        await _runOperation(taskType);
+
+        // Check if the operation failed
+        final result = _results[taskType.name];
+        if (result != null && !result.success) {
+          setState(() {
+            _isRunningBatch = false;
+            _isOperating = false;
+            _currentBatchStep = null;
+          });
+          return;
+        }
       }
-    } catch (e) {
+
       setState(() {
-        _error = Exception('Failed to start E2E workflow: $e');
         _isRunningBatch = false;
         _isOperating = false;
+        _currentBatchStep = null;
+      });
+    } catch (e) {
+      setState(() {
+        _error = Exception('E2E workflow failed: $e');
+        _isRunningBatch = false;
+        _isOperating = false;
+        _currentBatchStep = null;
       });
     }
   }
@@ -280,23 +391,6 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!_serviceInitialized)
-              Card(
-                color: Colors.orange.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Icon(Icons.warning, color: Colors.orange.shade700),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text('Background service not initialized'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
             if (_error != null)
               Card(
                 color: Colors.red.shade50,
@@ -334,7 +428,8 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.playlist_play, color: Colors.purple.shade700, size: 28),
+                        Icon(Icons.playlist_play,
+                            color: Colors.purple.shade700, size: 28),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(
@@ -384,7 +479,8 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
                             LinearProgressIndicator(
                               value: _currentBatchStepIndex / _e2eSteps.length,
                               backgroundColor: Colors.purple.shade100,
-                              valueColor: AlwaysStoppedAnimation(Colors.purple.shade700),
+                              valueColor: AlwaysStoppedAnimation(
+                                  Colors.purple.shade700),
                             ),
                           ],
                         ),
@@ -392,9 +488,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _isOperating || !_serviceInitialized
-                            ? null
-                            : _runCompleteE2EWorkflow,
+                        onPressed: _isOperating ? null : _runCompleteE2EWorkflow,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.purple.shade700,
                           foregroundColor: Colors.white,
@@ -410,7 +504,9 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
                                 ),
                               )
                             : const Icon(Icons.play_arrow),
-                        label: Text(_isRunningBatch ? 'Running...' : 'Run Complete E2E Workflow'),
+                        label: Text(_isRunningBatch
+                            ? 'Running...'
+                            : 'Run Complete E2E Workflow'),
                       ),
                     ),
                   ],
@@ -450,7 +546,8 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
             const SizedBox(height: 24),
 
             // Step 2: Generate Shared Blinds
-            _buildSectionHeader('Step 2: Generate Shared Blinds', Icons.shuffle),
+            _buildSectionHeader(
+                'Step 2: Generate Shared Blinds', Icons.shuffle),
             const SizedBox(height: 12),
             _buildOperationButton(
               taskType: ProofTaskType.generateBlinds,
@@ -548,7 +645,8 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
             if (_results.isNotEmpty) ...[
               _buildSectionHeader('Results', Icons.assessment),
               const SizedBox(height: 12),
-              ..._results.entries.map((entry) => _buildResultCard(entry.key, entry.value)),
+              ..._results.entries
+                  .map((entry) => _buildResultCard(entry.key, entry.value)),
             ],
           ],
         ),
@@ -583,25 +681,22 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
     final result = _results[taskType.name];
 
     return ElevatedButton.icon(
-      onPressed: _isOperating || !_serviceInitialized
-          ? null
-          : () => _runOperation(taskType),
+      onPressed: _isOperating ? null : () => _runOperation(taskType),
       style: ElevatedButton.styleFrom(
         backgroundColor: isCompleted ? color.shade100 : color,
         foregroundColor: isCompleted ? color.shade900 : Colors.white,
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       ),
-      icon: isCompleted
-          ? Icon(Icons.check_circle, color: color.shade700)
-          : Icon(icon),
+      icon:
+          isCompleted ? Icon(Icons.check_circle, color: color.shade700) : Icon(icon),
       label: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(label),
-          if (result?.timings != null)
+          if (result?.totalMs != null)
             Text(
-              '${result!.timings!.totalMs}ms',
+              '${result!.totalMs}ms',
               style: TextStyle(
                 fontSize: 11,
                 color: isCompleted ? color.shade700 : Colors.white70,
@@ -612,8 +707,9 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
     );
   }
 
-  Widget _buildResultCard(String taskName, app_models.ProofResult result) {
-    final taskType = ProofTaskType.values.firstWhere((e) => e.name == taskName);
+  Widget _buildResultCard(String taskName, TaskResult result) {
+    final taskType =
+        ProofTaskType.values.firstWhere((e) => e.name == taskName);
     final displayName = _taskTypeToDisplayName(taskType);
 
     return Card(
@@ -643,25 +739,36 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
             ),
             const SizedBox(height: 12),
 
+            // Error message
+            if (result.error != null) ...[
+              Text(
+                'Error: ${result.error}',
+                style: TextStyle(color: Colors.red.shade700),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // Success message
+            if (result.message != null) ...[
+              Text(result.message!),
+              const SizedBox(height: 8),
+            ],
+
             // Timings
-            if (result.timings != null) ...[
+            if (result.totalMs != null) ...[
               const Text(
-                'Timings:',
+                'Timing:',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
-              if (result.timings!.prepMs != null)
-                Text('• Prep: ${result.timings!.prepMs}ms'),
-              if (result.timings!.proveMs != null)
-                Text('• Prove: ${result.timings!.proveMs}ms'),
-              Text('• Total: ${result.timings!.totalMs}ms'),
+              Text('• Total: ${result.totalMs}ms'),
               const SizedBox(height: 8),
             ],
 
             // Proof size
             if (result.proofSizeBytes != null) ...[
               Text(
-                'Proof Size: ${(result.proofSizeBytes! / 1024).toStringAsFixed(2)} KB',
+                'Proof Size: ${(result.proofSizeBytes!.toInt() / 1024).toStringAsFixed(2)} KB',
                 style: TextStyle(color: Colors.grey.shade700),
               ),
               const SizedBox(height: 8),
@@ -691,15 +798,15 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
               ),
             ],
 
-            // Raw result for verification operations
-            if (result.rawResult != null &&
-                (taskType == ProofTaskType.verifyPrepare ||
-                    taskType == ProofTaskType.verifyShow)) ...[
+            // Verification result
+            if (result.verifyResult != null) ...[
               const SizedBox(height: 8),
               Text(
-                result.rawResult!,
+                result.verifyResult! ? 'Verification passed ✓' : 'Verification failed ✗',
                 style: TextStyle(
-                  color: result.success ? Colors.green.shade700 : Colors.red.shade700,
+                  color: result.verifyResult!
+                      ? Colors.green.shade700
+                      : Colors.red.shade700,
                   fontWeight: FontWeight.bold,
                 ),
               ),
