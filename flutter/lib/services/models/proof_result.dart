@@ -1,4 +1,5 @@
 import 'proof_task.dart';
+import 'package:mopro_flutter_bindings/src/rust/third_party/spartan2_hyrax_mopro.dart' as ffi;
 
 export 'proof_task.dart' show ProofTaskType;
 
@@ -11,6 +12,8 @@ class ProofResult {
   final String? error;
   final ProofTimings? timings;
   final DateTime completedAt;
+  final String? commWShared;
+  final int? proofSizeBytes;
 
   ProofResult({
     required this.taskId,
@@ -20,6 +23,8 @@ class ProofResult {
     this.error,
     this.timings,
     DateTime? completedAt,
+    this.commWShared,
+    this.proofSizeBytes,
   }) : completedAt = completedAt ?? DateTime.now();
 
   /// Convert result to JSON for service communication
@@ -32,6 +37,8 @@ class ProofResult {
       'error': error,
       'timings': timings?.toJson(),
       'completedAt': completedAt.millisecondsSinceEpoch,
+      'commWShared': commWShared,
+      'proofSizeBytes': proofSizeBytes,
     };
   }
 
@@ -51,6 +58,31 @@ class ProofResult {
       completedAt: DateTime.fromMillisecondsSinceEpoch(
         json['completedAt'] as int,
       ),
+      commWShared: json['commWShared'] as String?,
+      proofSizeBytes: json['proofSizeBytes'] as int?,
+    );
+  }
+
+  /// Create result from FFI ProofResult type
+  /// Used for prove and reblind operations that return structured ProofResult
+  factory ProofResult.fromFfiProofResult({
+    required String taskId,
+    required ProofTaskType taskType,
+    required ffi.ProofResult ffiResult,
+  }) {
+    final timings = ProofTimings(
+      prepMs: ffiResult.prepMs.toInt(),
+      proveMs: ffiResult.proveMs.toInt(),
+      totalMs: ffiResult.totalMs.toInt(),
+    );
+
+    return ProofResult(
+      taskId: taskId,
+      taskType: taskType,
+      success: true,
+      timings: timings,
+      commWShared: ffiResult.commWShared,
+      proofSizeBytes: ffiResult.proofSizeBytes.toInt(),
     );
   }
 

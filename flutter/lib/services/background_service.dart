@@ -2,13 +2,12 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:mopro_flutter_bindings/src/rust/third_party/spartan2_hyrax_mopro.dart';
+import 'package:mopro_flutter_bindings/src/rust/third_party/spartan2_hyrax_mopro.dart' as ffi;
 import 'package:mopro_flutter_bindings/src/rust/frb_generated.dart';
 
 import 'models/proof_task.dart';
-import 'models/proof_result.dart';
+import 'models/proof_result.dart' as app_models;
 import 'notification_service.dart';
 
 /// Entry point for the background service
@@ -168,8 +167,8 @@ Future<void> _executeTask(
   service.invoke('taskStarted', task.toJson());
 
   try {
-    String result;
     final documentsPath = task.params['documentsPath'] as String;
+    final inputPath = task.params['inputPath'] as String?;
 
     // Update notification with current task
     if (service is AndroidServiceInstance) {
@@ -180,24 +179,99 @@ Future<void> _executeTask(
     }
 
     // Execute the appropriate Rust function based on task type
+    app_models.ProofResult proofResult;
+
     switch (task.type) {
       case ProofTaskType.setupPrepare:
-        result = await setupPrepareKeys(documentsPath: documentsPath);
+        final result = await ffi.setupPrepareKeys(
+          documentsPath: documentsPath,
+          inputPath: inputPath,
+        );
+        proofResult = app_models.ProofResult.fromRustOutput(
+          taskId: task.id,
+          taskType: task.type,
+          rustOutput: result,
+        );
+
       case ProofTaskType.setupShow:
-        result = await setupShowKeys(documentsPath: documentsPath);
+        final result = await ffi.setupShowKeys(
+          documentsPath: documentsPath,
+          inputPath: inputPath,
+        );
+        proofResult = app_models.ProofResult.fromRustOutput(
+          taskId: task.id,
+          taskType: task.type,
+          rustOutput: result,
+        );
+
+      case ProofTaskType.generateBlinds:
+        final result = await ffi.generateSharedBlinds(documentsPath: documentsPath);
+        proofResult = app_models.ProofResult.fromRustOutput(
+          taskId: task.id,
+          taskType: task.type,
+          rustOutput: result,
+        );
+
       case ProofTaskType.provePrepare:
-        result = await provePrepareCircuit(documentsPath: documentsPath);
+        final ffiResult = await ffi.provePrepare(
+          documentsPath: documentsPath,
+          inputPath: inputPath,
+        );
+        proofResult = app_models.ProofResult.fromFfiProofResult(
+          taskId: task.id,
+          taskType: task.type,
+          ffiResult: ffiResult,
+        );
+
+      case ProofTaskType.proveShow:
+        final ffiResult = await ffi.proveShow(
+          documentsPath: documentsPath,
+          inputPath: inputPath,
+        );
+        proofResult = app_models.ProofResult.fromFfiProofResult(
+          taskId: task.id,
+          taskType: task.type,
+          ffiResult: ffiResult,
+        );
+
+      case ProofTaskType.reblindPrepare:
+        final ffiResult = await ffi.reblindPrepare(documentsPath: documentsPath);
+        proofResult = app_models.ProofResult.fromFfiProofResult(
+          taskId: task.id,
+          taskType: task.type,
+          ffiResult: ffiResult,
+        );
+
+      case ProofTaskType.reblindShow:
+        final ffiResult = await ffi.reblindShow(documentsPath: documentsPath);
+        proofResult = app_models.ProofResult.fromFfiProofResult(
+          taskId: task.id,
+          taskType: task.type,
+          ffiResult: ffiResult,
+        );
+
+      case ProofTaskType.verifyPrepare:
+        final verified = await ffi.verifyPrepare(documentsPath: documentsPath);
+        proofResult = app_models.ProofResult(
+          taskId: task.id,
+          taskType: task.type,
+          success: verified,
+          rawResult: verified ? 'Verification passed' : 'Verification failed',
+        );
+
+      case ProofTaskType.verifyShow:
+        final verified = await ffi.verifyShow(documentsPath: documentsPath);
+        proofResult = app_models.ProofResult(
+          taskId: task.id,
+          taskType: task.type,
+          success: verified,
+          rawResult: verified ? 'Verification passed' : 'Verification failed',
+        );
     }
 
-    // Parse result and extract timings
+    // Mark task as completed
     task.status = TaskStatus.completed;
     task.completedAt = DateTime.now();
-
-    final proofResult = ProofResult.fromRustOutput(
-      taskId: task.id,
-      taskType: task.type,
-      rustOutput: result,
-    );
 
     // Send individual task completion notification with detailed timings
     if (task.durationMs != null) {
@@ -225,7 +299,7 @@ Future<void> _executeTask(
     task.status = TaskStatus.failed;
     task.completedAt = DateTime.now();
 
-    final failedResult = ProofResult.failed(
+    final failedResult = app_models.ProofResult.failed(
       taskId: task.id,
       taskType: task.type,
       error: e.toString(),
@@ -245,6 +319,12 @@ String _taskTypeToDisplayName(ProofTaskType type) {
   return switch (type) {
     ProofTaskType.setupPrepare => 'Setup Prepare Keys',
     ProofTaskType.setupShow => 'Setup Show Keys',
+    ProofTaskType.generateBlinds => 'Generate Shared Blinds',
     ProofTaskType.provePrepare => 'Prove Prepare Circuit',
+    ProofTaskType.proveShow => 'Prove Show Circuit',
+    ProofTaskType.reblindPrepare => 'Reblind Prepare Proof',
+    ProofTaskType.reblindShow => 'Reblind Show Proof',
+    ProofTaskType.verifyPrepare => 'Verify Prepare Proof',
+    ProofTaskType.verifyShow => 'Verify Show Proof',
   };
 }

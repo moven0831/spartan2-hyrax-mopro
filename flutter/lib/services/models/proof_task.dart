@@ -70,7 +70,13 @@ class ProofTask {
 enum ProofTaskType {
   setupPrepare,
   setupShow,
+  generateBlinds,
   provePrepare,
+  proveShow,
+  reblindPrepare,
+  reblindShow,
+  verifyPrepare,
+  verifyShow,
 }
 
 /// Task execution status
