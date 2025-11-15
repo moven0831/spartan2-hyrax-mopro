@@ -17,7 +17,6 @@ mopro_ffi::app!();
 // ============================================================================
 
 /// Result of a proving operation with timing and proof metadata
-#[derive(uniffi::Record)]
 pub struct ProofResult {
     pub prep_ms: u64,
     pub prove_ms: u64,
@@ -27,7 +26,7 @@ pub struct ProofResult {
 }
 
 /// Errors that can occur during ZK proof operations
-#[derive(uniffi::Error, Debug)]
+#[derive(Debug)]
 pub enum ZkProofError {
     FileNotFound { message: String },
     ProofGenerationFailed { message: String },
@@ -144,7 +143,6 @@ pub fn generate_shared_blinds(documents_path: String) -> Result<String, ZkProofE
     with_working_dir(&documents_path, || {
         use ecdsa_spartan2::prover::generate_shared_blinds as gen_blinds;
 
-        // Generate 1 random blind for the Hyrax commitment
         // Note: While circuits have 98 shared values (2 keybindings + 96 claim scalars),
         // Hyrax batches all these into a single commitment point.
         // num_shared_rows() returns the number of Hyrax commitment points, not individual scalars.
