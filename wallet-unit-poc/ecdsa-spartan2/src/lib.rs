@@ -18,7 +18,10 @@ pub mod utils;
 
 // Re-export commonly used types and functions
 pub use circuits::{prepare_circuit::PrepareCircuit, show_circuit::ShowCircuit};
-pub use prover::{generate_prepare_witness, prove_circuit, run_circuit, CircuitTimings, ProveTimings};
+pub use prover::{
+    generate_prepare_witness, generate_shared_blinds, prove_circuit, reblind, run_circuit,
+    verify_circuit,
+};
 pub use setup::{
     load_proving_key, save_keys, setup_circuit_keys, PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY,
     SHOW_PROVING_KEY, SHOW_VERIFYING_KEY,
