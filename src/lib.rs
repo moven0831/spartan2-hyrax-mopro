@@ -17,6 +17,7 @@ mopro_ffi::app!();
 // ============================================================================
 
 /// Result of a proving operation with timing and proof metadata
+#[cfg_attr(feature = "uniffi", uniffi::record)]
 pub struct ProofResult {
     pub prep_ms: u64,
     pub prove_ms: u64,
@@ -27,6 +28,7 @@ pub struct ProofResult {
 
 /// Errors that can occur during ZK proof operations
 #[derive(Debug)]
+#[cfg_attr(feature = "uniffi", uniffi::error)]
 pub enum ZkProofError {
     FileNotFound { message: String },
     ProofGenerationFailed { message: String },
