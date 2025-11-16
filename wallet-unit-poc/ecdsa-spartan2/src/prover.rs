@@ -230,11 +230,18 @@ pub fn verify_circuit(proof_path: &str, vk_path: &str) {
 pub fn generate_prepare_witness(
     input_json_path: Option<&std::path::Path>,
 ) -> Result<Vec<Scalar>, SynthesisError> {
-    let root = current_dir().unwrap().join("../circom");
-
     let json_path = input_json_path
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| root.join("inputs/jwt/default.json"));
+        .unwrap_or_else(|| {
+            let cwd = current_dir().unwrap();
+            // Try mobile flat path first, fall back to development nested path
+            let mobile_path = cwd.join("jwt_input.json");
+            if mobile_path.exists() {
+                mobile_path
+            } else {
+                cwd.join("../circom/inputs/jwt/default.json")
+            }
+        });
 
     info!("Loading prepare inputs from {}", json_path.display());
 

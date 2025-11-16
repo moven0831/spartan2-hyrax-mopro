@@ -35,8 +35,15 @@ impl PrepareCircuit {
     }
 
     fn resolve_input_json(&self, cwd: &PathBuf) -> PathBuf {
-        self.input_path_absolute(cwd)
-            .unwrap_or_else(|| cwd.join("../circom/inputs/jwt/default.json"))
+        self.input_path_absolute(cwd).unwrap_or_else(|| {
+            // Try mobile flat path first, fall back to development nested path
+            let mobile_path = cwd.join("jwt_input.json");
+            if mobile_path.exists() {
+                mobile_path
+            } else {
+                cwd.join("../circom/inputs/jwt/default.json")
+            }
+        })
     }
 }
 
@@ -49,9 +56,18 @@ impl SpartanCircuit<E> for PrepareCircuit {
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
         let cwd = current_dir().unwrap();
-        let root = cwd.join("../circom");
-        let witness_dir = root.join("build/jwt/jwt_js");
-        let r1cs = witness_dir.join("jwt.r1cs");
+
+        // Try mobile flat path first, fall back to development nested path
+        let mobile_r1cs = cwd.join("jwt.r1cs");
+        let dev_root = cwd.join("../circom");
+        let dev_witness_dir = dev_root.join("build/jwt/jwt_js");
+        let dev_r1cs = dev_witness_dir.join("jwt.r1cs");
+
+        let r1cs = if mobile_r1cs.exists() {
+            mobile_r1cs
+        } else {
+            dev_r1cs
+        };
 
         // Detect if we're in setup phase (ShapeCS) or prove phase (SatisfyingAssignment)
         // During setup, we only need constraint structure instead of actual witness values
