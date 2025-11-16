@@ -104,6 +104,7 @@ class TaskResult {
   final rust_api.ProofResult? proofResult;
   final String? message;
   final bool? verifyResult;
+  final int? clientTimingMs;
 
   TaskResult({
     required this.taskType,
@@ -112,9 +113,10 @@ class TaskResult {
     this.proofResult,
     this.message,
     this.verifyResult,
+    this.clientTimingMs,
   });
 
-  BigInt? get totalMs => proofResult?.totalMs;
+  BigInt? get totalMs => proofResult?.totalMs ?? (clientTimingMs != null ? BigInt.from(clientTimingMs!) : null);
   BigInt? get proofSizeBytes => proofResult?.proofSizeBytes;
   String? get commWShared => proofResult?.commWShared;
 }
@@ -173,37 +175,46 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
       switch (taskType) {
         case ProofTaskType.setupPrepare:
+          final startTime = DateTime.now();
           final message = await rust_api.setupPrepareKeys(
             documentsPath: documentsPath,
             inputPath: inputPath,
           );
+          final elapsed = DateTime.now().difference(startTime).inMilliseconds;
           result = TaskResult(
             taskType: taskType,
             success: true,
             message: message,
+            clientTimingMs: elapsed,
           );
           break;
 
         case ProofTaskType.setupShow:
+          final startTime = DateTime.now();
           final message = await rust_api.setupShowKeys(
             documentsPath: documentsPath,
             inputPath: inputPath,
           );
+          final elapsed = DateTime.now().difference(startTime).inMilliseconds;
           result = TaskResult(
             taskType: taskType,
             success: true,
             message: message,
+            clientTimingMs: elapsed,
           );
           break;
 
         case ProofTaskType.generateBlinds:
+          final startTime = DateTime.now();
           final message = await rust_api.generateSharedBlinds(
             documentsPath: documentsPath,
           );
+          final elapsed = DateTime.now().difference(startTime).inMilliseconds;
           result = TaskResult(
             taskType: taskType,
             success: true,
             message: message,
+            clientTimingMs: elapsed,
           );
           break;
 
@@ -254,24 +265,30 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
           break;
 
         case ProofTaskType.verifyPrepare:
+          final startTime = DateTime.now();
           final verifyResult = await rust_api.verifyPrepare(
             documentsPath: documentsPath,
           );
+          final elapsed = DateTime.now().difference(startTime).inMilliseconds;
           result = TaskResult(
             taskType: taskType,
             success: verifyResult,
             verifyResult: verifyResult,
+            clientTimingMs: elapsed,
           );
           break;
 
         case ProofTaskType.verifyShow:
+          final startTime = DateTime.now();
           final verifyResult = await rust_api.verifyShow(
             documentsPath: documentsPath,
           );
+          final elapsed = DateTime.now().difference(startTime).inMilliseconds;
           result = TaskResult(
             taskType: taskType,
             success: verifyResult,
             verifyResult: verifyResult,
+            clientTimingMs: elapsed,
           );
           break;
       }
@@ -518,8 +535,8 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
             const Divider(),
             const SizedBox(height: 16),
 
-            // Step 1: Setup Operations
-            _buildSectionHeader('Step 1: Setup Operations', Icons.settings),
+            // Step 1: Key Setup
+            _buildSectionHeader('Step 1: Key Setup', Icons.settings),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -558,8 +575,17 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
             const SizedBox(height: 24),
 
-            // Step 3: Prove Operations
-            _buildSectionHeader('Step 3: Prove Operations', Icons.calculate),
+            // Step 3: Prepare (Prove + Reblind)
+            _buildSectionHeader('Step 3: Prepare', Icons.assignment),
+            const SizedBox(height: 8),
+            Text(
+              'Prove Prepare + Reblind Prepare',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -574,9 +600,9 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildOperationButton(
-                    taskType: ProofTaskType.proveShow,
-                    label: 'Prove Show',
-                    icon: Icons.calculate,
+                    taskType: ProofTaskType.reblindPrepare,
+                    label: 'Reblind Prepare',
+                    icon: Icons.sync,
                     color: Colors.green,
                   ),
                 ),
@@ -585,16 +611,25 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
             const SizedBox(height: 24),
 
-            // Step 4: Reblind Operations
-            _buildSectionHeader('Step 4: Reblind Operations', Icons.sync),
+            // Step 4: Show (Prove + Reblind)
+            _buildSectionHeader('Step 4: Show', Icons.visibility),
+            const SizedBox(height: 8),
+            Text(
+              'Prove Show + Reblind Show',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: _buildOperationButton(
-                    taskType: ProofTaskType.reblindPrepare,
-                    label: 'Reblind Prepare',
-                    icon: Icons.sync,
+                    taskType: ProofTaskType.proveShow,
+                    label: 'Prove Show',
+                    icon: Icons.calculate,
                     color: Colors.deepPurple,
                   ),
                 ),
@@ -612,8 +647,8 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
             const SizedBox(height: 24),
 
-            // Step 5: Verify Operations
-            _buildSectionHeader('Step 5: Verify Operations', Icons.check_circle),
+            // Step 5: Verify Proofs
+            _buildSectionHeader('Step 5: Verify Proofs', Icons.check_circle),
             const SizedBox(height: 12),
             Row(
               children: [
