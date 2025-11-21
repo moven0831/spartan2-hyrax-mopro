@@ -1,11 +1,4 @@
 build_mode = "release"
 target_adapters = []
-target_platforms = [
-    "ios",
-    "flutter",
-]
-ios = [
-    "aarch64-apple-ios-sim",
-    "aarch64-apple-ios",
-]
+target_platforms = ["flutter"]
 auto_update = false
