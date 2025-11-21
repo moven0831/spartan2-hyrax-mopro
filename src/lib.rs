@@ -1,9 +1,14 @@
 use ecdsa_spartan2::{
-    prover::{prove_circuit, reblind, verify_circuit},
+    load_instance, load_proof, load_shared_blinds, load_witness,
+    prover::{
+        generate_shared_blinds as gen_shared_blinds, prove_circuit, prove_circuit_with_pk,
+        reblind, reblind_with_loaded_data, verify_circuit, verify_circuit_with_loaded_data,
+    },
+    save_keys,
     setup::{
-        setup_circuit_keys, PREPARE_INSTANCE, PREPARE_PROOF, PREPARE_PROVING_KEY,
-        PREPARE_VERIFYING_KEY, PREPARE_WITNESS, SHARED_BLINDS, SHOW_INSTANCE, SHOW_PROOF,
-        SHOW_PROVING_KEY, SHOW_VERIFYING_KEY, SHOW_WITNESS,
+        setup_circuit_keys, setup_circuit_keys_no_save, PREPARE_INSTANCE, PREPARE_PROOF,
+        PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY, PREPARE_WITNESS, SHARED_BLINDS,
+        SHOW_INSTANCE, SHOW_PROOF, SHOW_PROVING_KEY, SHOW_VERIFYING_KEY, SHOW_WITNESS,
     },
     PrepareCircuit, ShowCircuit, E,
 };
@@ -24,6 +29,43 @@ pub struct ProofResult {
     pub total_ms: u64,
     pub proof_size_bytes: u64,
     pub comm_w_shared: String,
+}
+
+/// Result of a complete benchmark run with timing and size metrics
+#[cfg_attr(feature = "uniffi", uniffi::record)]
+pub struct BenchmarkResults {
+    // Timing metrics (milliseconds)
+    pub prepare_setup_ms: u64,
+    pub show_setup_ms: u64,
+    pub generate_blinds_ms: u64,
+    pub prove_prepare_ms: u64,
+    pub reblind_prepare_ms: u64,
+    pub prove_show_ms: u64,
+    pub reblind_show_ms: u64,
+    pub verify_prepare_ms: u64,
+    pub verify_show_ms: u64,
+    // Size metrics (bytes)
+    pub prepare_proving_key_bytes: u64,
+    pub prepare_verifying_key_bytes: u64,
+    pub show_proving_key_bytes: u64,
+    pub show_verifying_key_bytes: u64,
+    pub prepare_proof_bytes: u64,
+    pub show_proof_bytes: u64,
+    pub prepare_witness_bytes: u64,
+    pub show_witness_bytes: u64,
+}
+
+impl BenchmarkResults {
+    /// Format bytes into human-readable size string
+    pub fn format_size(bytes: u64) -> String {
+        if bytes < 1024 {
+            format!("{} B", bytes)
+        } else if bytes < 1024 * 1024 {
+            format!("{:.2} KB", bytes as f64 / 1024.0)
+        } else {
+            format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0))
+        }
+    }
 }
 
 /// Errors that can occur during ZK proof operations
@@ -316,6 +358,188 @@ pub fn verify_show(documents_path: String) -> Result<bool, ZkProofError> {
     with_working_dir(&documents_path, || {
         verify_circuit(SHOW_PROOF, SHOW_VERIFYING_KEY);
         Ok(true)
+    })
+}
+
+// ============================================================================
+// Benchmark Operations
+// ============================================================================
+
+/// Run complete benchmark pipeline for both Prepare and Show circuits
+/// Executes all 9 steps: setup, prove, reblind, and verify for both circuits
+/// Returns comprehensive timing and size metrics
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn run_complete_benchmark(
+    documents_path: String,
+    input_path: Option<String>,
+) -> Result<BenchmarkResults, ZkProofError> {
+    with_working_dir(&documents_path, || {
+        // Note: While circuits have 98 shared values (2 keybindings + 96 claim scalars),
+        // Hyrax batches all these into a single commitment point.
+        // num_shared_rows() returns the number of Hyrax commitment points, not individual scalars.
+        const NUM_SHARED: usize = 1;
+
+        // Step 1: Setup Prepare Circuit
+        let prepare_circuit = PrepareCircuit::new(input_path.as_ref().map(PathBuf::from));
+        let start = std::time::Instant::now();
+        let (prepare_pk, prepare_vk) = setup_circuit_keys_no_save(prepare_circuit);
+        let prepare_setup_ms = start.elapsed().as_millis() as u64;
+
+        // Save Prepare keys after timing
+        save_keys(
+            PREPARE_PROVING_KEY,
+            PREPARE_VERIFYING_KEY,
+            &prepare_pk,
+            &prepare_vk,
+        )
+        .map_err(|e| ZkProofError::IoError {
+            message: format!("Failed to save Prepare keys: {}", e),
+        })?;
+
+        // Step 2: Setup Show Circuit
+        let show_circuit = ShowCircuit::new(input_path.as_ref().map(PathBuf::from));
+        let start = std::time::Instant::now();
+        let (show_pk, show_vk) = setup_circuit_keys_no_save(show_circuit);
+        let show_setup_ms = start.elapsed().as_millis() as u64;
+
+        // Save Show keys after timing
+        save_keys(SHOW_PROVING_KEY, SHOW_VERIFYING_KEY, &show_pk, &show_vk).map_err(|e| {
+            ZkProofError::IoError {
+                message: format!("Failed to save Show keys: {}", e),
+            }
+        })?;
+
+        // Step 3: Generate Shared Blinds
+        let start = std::time::Instant::now();
+        gen_shared_blinds::<E>(SHARED_BLINDS, NUM_SHARED);
+        let generate_blinds_ms = start.elapsed().as_millis() as u64;
+
+        // Step 4: Prove Prepare Circuit
+        let start = std::time::Instant::now();
+        let prepare_circuit = PrepareCircuit::new(input_path.as_ref().map(PathBuf::from));
+        prove_circuit_with_pk(
+            prepare_circuit,
+            &prepare_pk,
+            PREPARE_INSTANCE,
+            PREPARE_WITNESS,
+            PREPARE_PROOF,
+        );
+        let prove_prepare_ms = start.elapsed().as_millis() as u64;
+
+        // Step 5: Reblind Prepare
+        // Load data before timing (file I/O should not be part of reblind benchmark)
+        let prepare_instance =
+            load_instance(PREPARE_INSTANCE).map_err(|e| ZkProofError::FileNotFound {
+                message: format!("Failed to load prepare instance: {}", e),
+            })?;
+        let prepare_witness =
+            load_witness(PREPARE_WITNESS).map_err(|e| ZkProofError::FileNotFound {
+                message: format!("Failed to load prepare witness: {}", e),
+            })?;
+        let shared_blinds =
+            load_shared_blinds::<E>(SHARED_BLINDS).map_err(|e| ZkProofError::FileNotFound {
+                message: format!("Failed to load shared blinds: {}", e),
+            })?;
+
+        let start = std::time::Instant::now();
+        reblind_with_loaded_data(
+            PrepareCircuit::default(),
+            &prepare_pk,
+            prepare_instance,
+            prepare_witness,
+            &shared_blinds,
+            PREPARE_INSTANCE,
+            PREPARE_WITNESS,
+            PREPARE_PROOF,
+        );
+        let reblind_prepare_ms = start.elapsed().as_millis() as u64;
+
+        // Step 6: Prove Show Circuit
+        let start = std::time::Instant::now();
+        let show_circuit = ShowCircuit::new(input_path.as_ref().map(PathBuf::from));
+        prove_circuit_with_pk(
+            show_circuit,
+            &show_pk,
+            SHOW_INSTANCE,
+            SHOW_WITNESS,
+            SHOW_PROOF,
+        );
+        let prove_show_ms = start.elapsed().as_millis() as u64;
+
+        // Step 7: Reblind Show
+        // Load data before timing (file I/O should not be part of reblind benchmark)
+        let show_instance =
+            load_instance(SHOW_INSTANCE).map_err(|e| ZkProofError::FileNotFound {
+                message: format!("Failed to load show instance: {}", e),
+            })?;
+        let show_witness = load_witness(SHOW_WITNESS).map_err(|e| ZkProofError::FileNotFound {
+            message: format!("Failed to load show witness: {}", e),
+        })?;
+        // Reuse shared_blinds from Prepare step (already loaded)
+
+        let start = std::time::Instant::now();
+        reblind_with_loaded_data(
+            ShowCircuit::default(),
+            &show_pk,
+            show_instance,
+            show_witness,
+            &shared_blinds,
+            SHOW_INSTANCE,
+            SHOW_WITNESS,
+            SHOW_PROOF,
+        );
+        let reblind_show_ms = start.elapsed().as_millis() as u64;
+
+        // Step 8: Verify Prepare
+        // Load proof before timing (file I/O should not be part of verify benchmark)
+        let prepare_proof =
+            load_proof(PREPARE_PROOF).map_err(|e| ZkProofError::FileNotFound {
+                message: format!("Failed to load prepare proof: {}", e),
+            })?;
+
+        let start = std::time::Instant::now();
+        verify_circuit_with_loaded_data(&prepare_proof, &prepare_vk);
+        let verify_prepare_ms = start.elapsed().as_millis() as u64;
+
+        // Step 9: Verify Show
+        // Load proof before timing (file I/O should not be part of verify benchmark)
+        let show_proof = load_proof(SHOW_PROOF).map_err(|e| ZkProofError::FileNotFound {
+            message: format!("Failed to load show proof: {}", e),
+        })?;
+
+        let start = std::time::Instant::now();
+        verify_circuit_with_loaded_data(&show_proof, &show_vk);
+        let verify_show_ms = start.elapsed().as_millis() as u64;
+
+        // Measure file sizes
+        let prepare_proving_key_bytes = get_proof_size(PREPARE_PROVING_KEY)?;
+        let prepare_verifying_key_bytes = get_proof_size(PREPARE_VERIFYING_KEY)?;
+        let show_proving_key_bytes = get_proof_size(SHOW_PROVING_KEY)?;
+        let show_verifying_key_bytes = get_proof_size(SHOW_VERIFYING_KEY)?;
+        let prepare_proof_bytes = get_proof_size(PREPARE_PROOF)?;
+        let show_proof_bytes = get_proof_size(SHOW_PROOF)?;
+        let prepare_witness_bytes = get_proof_size(PREPARE_WITNESS)?;
+        let show_witness_bytes = get_proof_size(SHOW_WITNESS)?;
+
+        Ok(BenchmarkResults {
+            prepare_setup_ms,
+            show_setup_ms,
+            generate_blinds_ms,
+            prove_prepare_ms,
+            reblind_prepare_ms,
+            prove_show_ms,
+            reblind_show_ms,
+            verify_prepare_ms,
+            verify_show_ms,
+            prepare_proving_key_bytes,
+            prepare_verifying_key_bytes,
+            show_proving_key_bytes,
+            show_verifying_key_bytes,
+            prepare_proof_bytes,
+            show_proof_bytes,
+            prepare_witness_bytes,
+            show_witness_bytes,
+        })
     })
 }
 

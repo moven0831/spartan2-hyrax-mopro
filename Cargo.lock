@@ -718,7 +718,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "spartan2",
+ "spartan2 0.4.0 (git+https://github.com/therealyingtong/Spartan2.git?branch=zk)",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2262,6 +2262,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "spartan2"
+version = "0.4.0"
+source = "git+https://github.com/therealyingtong/Spartan2.git?branch=zk#01020f09dcddd6b46bdb5a16725b75d8695d0e61"
+dependencies = [
+ "bellpepper",
+ "bellpepper-core",
+ "bincode",
+ "bitvec",
+ "byteorder",
+ "digest",
+ "ff",
+ "flate2",
+ "generic-array",
+ "getrandom 0.2.16",
+ "group",
+ "halo2curves",
+ "itertools 0.14.0",
+ "num-bigint 0.4.6",
+ "num-integer",
+ "num-traits",
+ "once_cell",
+ "rand_core",
+ "rayon",
+ "serde",
+ "sha3",
+ "subtle",
+ "thiserror 2.0.12",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "spartan2-hyrax-mopro"
 version = "0.1.0"
 dependencies = [
@@ -2291,7 +2323,7 @@ dependencies = [
  "serde",
  "sha2",
  "sha3",
- "spartan2",
+ "spartan2 0.4.0 (git+https://github.com/moven0831/Spartan2.git?branch=chore%2Fpublic-reblind-api)",
  "subtle",
  "tempfile",
  "thiserror 2.0.12",

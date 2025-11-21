@@ -5,7 +5,19 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:mopro_flutter_bindings/src/rust/frb_generated.dart';
 import 'package:mopro_flutter_bindings/src/rust/third_party/spartan2_hyrax_mopro.dart'
-    as rust_api;
+    show
+        BenchmarkResults,
+        ProofResult,
+        generateSharedBlinds,
+        provePrepare,
+        proveShow,
+        reblindPrepare,
+        reblindShow,
+        runCompleteBenchmark,
+        setupPrepareKeys,
+        setupShowKeys,
+        verifyPrepare,
+        verifyShow;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,9 +36,20 @@ Future<void> _copyAssetsToDocuments() async {
       await circomDir.create(recursive: true);
     }
 
+    // Create subdirectories matching Rust circuit expectations
+    final jwtBuildDir = Directory('${circomDir.path}/build/jwt/jwt_js');
+    final showBuildDir = Directory('${circomDir.path}/build/show/show_js');
+
+    if (!await jwtBuildDir.exists()) {
+      await jwtBuildDir.create(recursive: true);
+    }
+    if (!await showBuildDir.exists()) {
+      await showBuildDir.create(recursive: true);
+    }
+
     final compressedAssets = {
-      'assets/circom/jwt.r1cs.gz': 'jwt.r1cs',
-      'assets/circom/show.r1cs.gz': 'show.r1cs',
+      'assets/circom/jwt.r1cs.gz': 'build/jwt/jwt_js/jwt.r1cs',
+      'assets/circom/show.r1cs.gz': 'build/show/show_js/show.r1cs',
     };
 
     final regularAssets = [
@@ -101,7 +124,7 @@ class TaskResult {
   final ProofTaskType taskType;
   final bool success;
   final String? error;
-  final rust_api.ProofResult? proofResult;
+  final ProofResult? proofResult;
   final String? message;
   final bool? verifyResult;
   final int? clientTimingMs;
@@ -130,21 +153,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
   Map<String, TaskResult> _results = {};
   Map<String, bool> _completedSteps = {};
 
-  // Batch operation state
-  bool _isRunningBatch = false;
-  String? _currentBatchStep;
-  int _currentBatchStepIndex = 0;
-  final List<ProofTaskType> _e2eSteps = [
-    ProofTaskType.setupPrepare,
-    ProofTaskType.setupShow,
-    ProofTaskType.generateBlinds,
-    ProofTaskType.provePrepare,
-    ProofTaskType.proveShow,
-    ProofTaskType.reblindPrepare,
-    ProofTaskType.reblindShow,
-    ProofTaskType.verifyPrepare,
-    ProofTaskType.verifyShow,
-  ];
+  BenchmarkResults? _benchmarkResults;
 
   Future<String> _getDocumentsPath() async {
     final directory = await getApplicationDocumentsDirectory();
@@ -176,7 +185,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
       switch (taskType) {
         case ProofTaskType.setupPrepare:
           final startTime = DateTime.now();
-          final message = await rust_api.setupPrepareKeys(
+          final message = await setupPrepareKeys(
             documentsPath: documentsPath,
             inputPath: inputPath,
           );
@@ -191,7 +200,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
         case ProofTaskType.setupShow:
           final startTime = DateTime.now();
-          final message = await rust_api.setupShowKeys(
+          final message = await setupShowKeys(
             documentsPath: documentsPath,
             inputPath: inputPath,
           );
@@ -206,7 +215,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
         case ProofTaskType.generateBlinds:
           final startTime = DateTime.now();
-          final message = await rust_api.generateSharedBlinds(
+          final message = await generateSharedBlinds(
             documentsPath: documentsPath,
           );
           final elapsed = DateTime.now().difference(startTime).inMilliseconds;
@@ -219,7 +228,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
           break;
 
         case ProofTaskType.provePrepare:
-          final proofResult = await rust_api.provePrepare(
+          final proofResult = await provePrepare(
             documentsPath: documentsPath,
             inputPath: inputPath,
           );
@@ -231,7 +240,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
           break;
 
         case ProofTaskType.proveShow:
-          final proofResult = await rust_api.proveShow(
+          final proofResult = await proveShow(
             documentsPath: documentsPath,
             inputPath: inputPath,
           );
@@ -243,7 +252,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
           break;
 
         case ProofTaskType.reblindPrepare:
-          final proofResult = await rust_api.reblindPrepare(
+          final proofResult = await reblindPrepare(
             documentsPath: documentsPath,
           );
           result = TaskResult(
@@ -254,7 +263,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
           break;
 
         case ProofTaskType.reblindShow:
-          final proofResult = await rust_api.reblindShow(
+          final proofResult = await reblindShow(
             documentsPath: documentsPath,
           );
           result = TaskResult(
@@ -266,7 +275,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
         case ProofTaskType.verifyPrepare:
           final startTime = DateTime.now();
-          final verifyResult = await rust_api.verifyPrepare(
+          final verifyResult = await verifyPrepare(
             documentsPath: documentsPath,
           );
           final elapsed = DateTime.now().difference(startTime).inMilliseconds;
@@ -280,7 +289,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
         case ProofTaskType.verifyShow:
           final startTime = DateTime.now();
-          final verifyResult = await rust_api.verifyShow(
+          final verifyResult = await verifyShow(
             documentsPath: documentsPath,
           );
           final elapsed = DateTime.now().difference(startTime).inMilliseconds;
@@ -309,57 +318,39 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
         _completedSteps[taskType.name] = false;
         _error = Exception('${_taskTypeToDisplayName(taskType)} failed: $e');
         _isOperating = false;
-        _isRunningBatch = false;
-        _currentBatchStep = null;
       });
     }
   }
 
-  Future<void> _runCompleteE2EWorkflow() async {
+  Future<void> _runBenchmark() async {
     setState(() {
-      _isRunningBatch = true;
       _isOperating = true;
       _error = null;
-      _results = {};
-      _completedSteps = {};
-      _currentBatchStepIndex = 0;
-      _currentBatchStep = _taskTypeToDisplayName(_e2eSteps[0]);
+      _benchmarkResults = null;
     });
 
     try {
-      for (int i = 0; i < _e2eSteps.length; i++) {
-        final taskType = _e2eSteps[i];
+      final documentsPath = await _getDocumentsPath();
+      final startTime = DateTime.now();
 
-        setState(() {
-          _currentBatchStepIndex = i;
-          _currentBatchStep = _taskTypeToDisplayName(taskType);
-        });
+      final results = await runCompleteBenchmark(
+        documentsPath: documentsPath,
+        inputPath: null,
+      );
 
-        await _runOperation(taskType);
-
-        // Check if the operation failed
-        final result = _results[taskType.name];
-        if (result != null && !result.success) {
-          setState(() {
-            _isRunningBatch = false;
-            _isOperating = false;
-            _currentBatchStep = null;
-          });
-          return;
-        }
-      }
+      final clientTimingMs =
+          DateTime.now().difference(startTime).inMilliseconds;
 
       setState(() {
-        _isRunningBatch = false;
+        _benchmarkResults = results;
         _isOperating = false;
-        _currentBatchStep = null;
       });
+
+      print('Benchmark completed in ${clientTimingMs}ms');
     } catch (e) {
       setState(() {
-        _error = Exception('E2E workflow failed: $e');
-        _isRunningBatch = false;
+        _error = Exception('Benchmark failed: $e');
         _isOperating = false;
-        _currentBatchStep = null;
       });
     }
   }
@@ -370,8 +361,7 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
       _completedSteps = {};
       _error = null;
       _isOperating = false;
-      _isRunningBatch = false;
-      _currentBatchStep = null;
+      _benchmarkResults = null;
     });
   }
 
@@ -434,10 +424,9 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
 
             const SizedBox(height: 16),
 
-            // Complete E2E Workflow Button
+            // Benchmark Section
             Card(
               elevation: 4,
-              color: Colors.purple.shade50,
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -445,91 +434,57 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.playlist_play,
-                            color: Colors.purple.shade700, size: 28),
+                        const Icon(Icons.speed, color: Colors.deepPurple),
                         const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Complete E2E Workflow',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.purple.shade900,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Execute all 9 steps sequentially: Setup → Generate Blinds → Prove → Reblind → Verify',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                            ],
+                        const Text(
+                          'Complete Benchmark',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Run comprehensive benchmark including setup, prove, reblind, and verify for both circuits. Results include timing and artifact sizes.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
                     const SizedBox(height: 12),
-                    if (_isRunningBatch && _currentBatchStep != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Progress: Step ${_currentBatchStepIndex + 1}/${_e2eSteps.length}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.purple.shade900,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Current: $_currentBatchStep',
-                              style: TextStyle(color: Colors.purple.shade700),
-                            ),
-                            const SizedBox(height: 8),
-                            LinearProgressIndicator(
-                              value: _currentBatchStepIndex / _e2eSteps.length,
-                              backgroundColor: Colors.purple.shade100,
-                              valueColor: AlwaysStoppedAnimation(
-                                  Colors.purple.shade700),
-                            ),
-                          ],
-                        ),
-                      ),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _isOperating ? null : _runCompleteE2EWorkflow,
+                        onPressed: _isOperating ? null : _runBenchmark,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.purple.shade700,
+                          backgroundColor: Colors.deepPurple,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.all(16),
                         ),
-                        icon: _isRunningBatch
+                        icon: _isOperating
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: Colors.white,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
                                 ),
                               )
-                            : const Icon(Icons.play_arrow),
-                        label: Text(_isRunningBatch
-                            ? 'Running...'
-                            : 'Run Complete E2E Workflow'),
+                            : const Icon(Icons.speed),
+                        label: Text(_isOperating
+                            ? 'Running Benchmark...'
+                            : 'Run Complete Benchmark'),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+
+            if (_benchmarkResults != null) ...[
+              const SizedBox(height: 16),
+              _buildBenchmarkResults(),
+            ],
 
             const SizedBox(height: 24),
             const Divider(),
@@ -849,6 +804,182 @@ class _E2EProofWorkflowScreenState extends State<E2EProofWorkflowScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBenchmarkResults() {
+    if (_benchmarkResults == null) return const SizedBox.shrink();
+
+    final results = _benchmarkResults!;
+
+    return Card(
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.assessment, color: Colors.deepPurple),
+                    SizedBox(width: 8),
+                    Text(
+                      'Benchmark Results',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () {
+                    setState(() {
+                      _benchmarkResults = null;
+                    });
+                  },
+                  tooltip: 'Clear results',
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Timing Metrics Section
+            const Text(
+              'Timing Metrics',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.deepPurple,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Table(
+              border: TableBorder.all(color: Colors.grey.shade300),
+              columnWidths: const {
+                0: FlexColumnWidth(2),
+                1: FlexColumnWidth(1),
+              },
+              children: [
+                _buildTableHeader(['Operation', 'Time (ms)']),
+                _buildTimingRow('Prepare Setup', results.prepareSetupMs),
+                _buildTimingRow('Show Setup', results.showSetupMs),
+                _buildTimingRow('Generate Blinds', results.generateBlindsMs),
+                _buildTimingRow('Prove Prepare', results.provePrepareMs),
+                _buildTimingRow('Reblind Prepare', results.reblindPrepareMs),
+                _buildTimingRow('Prove Show', results.proveShowMs),
+                _buildTimingRow('Reblind Show', results.reblindShowMs),
+                _buildTimingRow('Verify Prepare', results.verifyPrepareMs),
+                _buildTimingRow('Verify Show', results.verifyShowMs),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // Size Metrics Section
+            const Text(
+              'Artifact Sizes',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.deepPurple,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Table(
+              border: TableBorder.all(color: Colors.grey.shade300),
+              columnWidths: const {
+                0: FlexColumnWidth(2),
+                1: FlexColumnWidth(1),
+              },
+              children: [
+                _buildTableHeader(['Artifact', 'Size']),
+                _buildSizeRow(
+                    'Prepare Proving Key', results.prepareProvingKeyBytes),
+                _buildSizeRow('Prepare Verifying Key',
+                    results.prepareVerifyingKeyBytes),
+                _buildSizeRow('Show Proving Key', results.showProvingKeyBytes),
+                _buildSizeRow(
+                    'Show Verifying Key', results.showVerifyingKeyBytes),
+                _buildSizeRow('Prepare Proof', results.prepareProofBytes),
+                _buildSizeRow('Show Proof', results.showProofBytes),
+                _buildSizeRow('Prepare Witness', results.prepareWitnessBytes),
+                _buildSizeRow('Show Witness', results.showWitnessBytes),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  TableRow _buildTableHeader(List<String> headers) {
+    return TableRow(
+      decoration: BoxDecoration(color: Colors.grey.shade200),
+      children: headers
+          .map((header) => Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(
+                  header,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ))
+          .toList(),
+    );
+  }
+
+  TableRow _buildTimingRow(String operation, BigInt milliseconds) {
+    return TableRow(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Text(operation),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Text(
+            milliseconds.toString(),
+            style: const TextStyle(fontFamily: 'monospace'),
+            textAlign: TextAlign.right,
+          ),
+        ),
+      ],
+    );
+  }
+
+  TableRow _buildSizeRow(String artifact, BigInt bytes) {
+    String formattedSize;
+    final bytesInt = bytes.toInt();
+    if (bytesInt < 1024) {
+      formattedSize = '$bytesInt B';
+    } else if (bytesInt < 1024 * 1024) {
+      formattedSize = '${(bytesInt / 1024).toStringAsFixed(2)} KB';
+    } else {
+      formattedSize = '${(bytesInt / (1024 * 1024)).toStringAsFixed(2)} MB';
+    }
+
+    return TableRow(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Text(artifact),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Text(
+            formattedSize,
+            style: const TextStyle(fontFamily: 'monospace'),
+            textAlign: TextAlign.right,
+          ),
+        ),
+      ],
     );
   }
 }
