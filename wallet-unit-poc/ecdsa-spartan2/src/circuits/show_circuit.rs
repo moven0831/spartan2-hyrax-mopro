@@ -59,19 +59,9 @@ impl SpartanCircuit<E> for ShowCircuit {
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
         let cwd = current_dir().unwrap();
-
-        // Try mobile flat path first, fall back to development nested path
-        let mobile_r1cs = cwd.join("show.r1cs");
-        let dev_root = cwd.join("../circom");
-        let dev_witness_dir = dev_root.join("build/show/show_js");
-        let dev_r1cs = dev_witness_dir.join("show.r1cs");
-
-        let r1cs = if mobile_r1cs.exists() {
-            mobile_r1cs
-        } else {
-            dev_r1cs
-        };
-
+        let root = cwd.join("../circom");
+        let witness_dir = root.join("build/show/show_js");
+        let r1cs = witness_dir.join("show.r1cs");
         let json_value = self.load_inputs(&cwd)?;
 
         // Parse inputs using declarative field definitions
